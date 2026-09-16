@@ -1,4 +1,4 @@
-# BookWolf
+# CampusReserve
 **Project Proposal — CSE-416 Software Engineering, Fall 2026**
 
 ## 1. Problem
@@ -13,13 +13,13 @@ Through our interviews, we identified five recurring areas where the current exp
 - **Misleading room availability.** A room may appear as available during the search process even though another organization has already submitted a request for it and is awaiting approval, or when the room's building is closed. Club leaders reported that many booking requests were eventually denied because the space was never actually free, forcing them to look for last-minute alternatives.
 - **No notifications.** Leaders do not have a reliable, centralized way to keep track of changes to their booking requests or receive timely updates when a request is approved or denied, which compounds every delay mentioned above.
 
-BookWolf is designed to improve the room-booking experience specifically for student organizations. It presents a clear, modern interface over the current reservation process, built around their needs. It will make relevant room information easier to understand, organize booking requests in one place, display the accurate availability of each room, and introduce features that 25Live lacks, such as clearer notifications and communication between organizations. Confirmed reservations would remain synchronized with the university's existing system of record, helping BookWolf work alongside the university's current scheduling process rather than replacing it.
+CampusReserve is designed to improve the room-booking experience specifically for student organizations. It presents a clear, modern interface over the current reservation process, built around their needs. It will make relevant room information easier to understand, organize booking requests in one place, display the accurate availability of each room, and introduce features that 25Live lacks, such as clearer notifications and communication between organizations. Confirmed reservations would remain synchronized with the university's existing system of record, helping CampusReserve work alongside the university's current scheduling process rather than replacing it.
 
 ## 2. Users and Audience
 
-BookWolf will serve two types of users who will have different specific needs and permissions. Separating these roles will be important for maintaining security and making sure access is given to the appropriate people.
+CampusReserve will serve two types of users who will have different specific needs and permissions. Separating these roles will be important for maintaining security and making sure access is given to the appropriate people.
 
-| Role | Who they are | What they do in BookWolf |
+| Role | Who they are | What they do in CampusReserve |
 |------|-------------|--------------------------|
 | **Club Executive Members** | Verified E-board members of a registered organization | Search and filter spaces, submit and track booking requests, join waitlists, communicate with other organizations, use the collaboration forum |
 | **Administrators** | Student Affairs / USG staff who manage spaces | Review, approve, or deny requests with a stated reason; manage room availability and closures; view analytics on demand and usage |
@@ -28,7 +28,7 @@ BookWolf will serve two types of users who will have different specific needs an
 
 ## 3. Why This Is a Semester of Work
 
-BookWolf is not a page that a language model produces in a weekend. Its difficulty lives in several genuinely hard, interacting problems:
+CampusReserve is not a page that a language model produces in a weekend. Its difficulty lives in several genuinely hard, interacting problems:
 
 - **A real-time status engine.** The core value of the product is that a room's status is always accurate — whether it is available, already requested by another group, or genuinely unbookable. Keeping that status correct as requests, approvals, cancellations, and closures happen concurrently is a state-consistency problem.
 - **A multi-role approval workflow.** A request moves through states (submitted → pending → approved/denied → possibly cancelled) across two different user roles, each seeing and doing different things. Modeling that workflow and its permissions correctly is substantial.
@@ -42,7 +42,7 @@ None of these are scaffolding an agent generates in one pass; the state-consiste
 
 ## 4. Related Systems
 
-| System | What it is | How BookWolf differs |
+| System | What it is | How CampusReserve differs |
 |--------|-----------|----------------------|
 | **25Live** | SBU's current reservation system; the system of record, tied to the Registrar and PeopleSoft feeds | We are a friendlier, club-focused interface over the same process; we sync to it rather than replace it, and we filter only to spaces relevant to student organizations |
 | **EMS / Skedda / Robin** | Commercial room- and desk-booking products | General-purpose and paid; none model a student-organization approval workflow, E-board verification, or campus collaboration between clubs |
@@ -130,7 +130,7 @@ The inspiration for this application comes from a significant common frustration
 
 ## 7. Architecture Sketch
 
-BookWolf is a three-tier web application. A React frontend serves both roles; a Node.js and Express backend holds the authentication, booking, approval-workflow, status, and waitlist logic; and a MongoDB database stores requests, rooms, room media, messages, and forum content.
+CampusReserve is a three-tier web application. A React frontend serves both roles; a Node.js and Express backend holds the authentication, booking, approval-workflow, status, and waitlist logic; and a MongoDB database stores requests, rooms, room media, messages, and forum content.
 
 The 25Live integration is intentionally designed as a sync layer with a swappable adapter. Rather than depending on write access to a production university system, we will build against a mock/test 25Live and treat real API access as an enhancement. This lets us demonstrate the full application end-to-end regardless of integration access, and it is why the diagram shows the real system as a dashed, replaceable target. This will allow us to properly test the functionality of our product prior to deployment.
 
