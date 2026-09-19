@@ -4,9 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import (
-    Column, DateTime, Enum, ForeignKey, String, Text, Boolean, Index
-)
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, String, Text, Boolean, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -15,6 +13,7 @@ from .base import Base
 
 class Message(Base):
     """A direct message between users (FR-8), grouped into conversations."""
+
     __tablename__ = "messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -52,6 +51,7 @@ class Message(Base):
 
 class ForumPost(Base):
     """A collaboration-forum post or reply (FR-9). Self-referential for threading."""
+
     __tablename__ = "forum_posts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -75,11 +75,15 @@ class ForumPost(Base):
         index=True,
     )
 
-    title = Column(String(255), nullable=True)  # top-level posts have a title; replies usually don't
+    title = Column(
+        String(255), nullable=True
+    )  # top-level posts have a title; replies usually don't
     body = Column(Text, nullable=False)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
     author = relationship("User")
     organization = relationship("Organization")
@@ -99,6 +103,7 @@ class ForumPost(Base):
 
 class NotificationType(str, enum.Enum):
     """What a notification is about (FR-7)."""
+
     REQUEST_APPROVED = "request_approved"
     REQUEST_DENIED = "request_denied"
     WAITLIST_PROMOTED = "waitlist_promoted"
@@ -107,6 +112,7 @@ class NotificationType(str, enum.Enum):
 
 class Notification(Base):
     """An in-app notification for a user (FR-7). Email delivery is a later enhancement."""
+
     __tablename__ = "notifications"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -119,7 +125,9 @@ class Notification(Base):
     )
 
     type = Column(Enum(NotificationType, name="notification_type"), nullable=False)
-    message = Column(String(512), nullable=False)  # human-readable text shown to the user
+    message = Column(
+        String(512), nullable=False
+    )  # human-readable text shown to the user
 
     # Optional link to the request this notification is about.
     request_id = Column(

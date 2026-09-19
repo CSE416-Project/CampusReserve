@@ -13,6 +13,7 @@ from .base import Base  # your declarative Base lives here
 
 class UserRole(str, enum.Enum):
     """The three user types in CampusReserve."""
+
     CLUB_LEADER = "club_leader"
     ADMIN = "admin"
     VENUE_HOST = "venue_host"
@@ -43,7 +44,6 @@ class User(Base):
     updated_at = Column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
-
 
     # TODO update below, want organization and venue as well.
     # --- relationships (defined on the related models via back_populates) ---
