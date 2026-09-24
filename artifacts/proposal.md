@@ -23,6 +23,7 @@ CampusReserve will serve two types of users who will have different specific nee
 |------|-------------|--------------------------|
 | **Club Executive Members** | Verified E-board members of a registered organization | Search and filter spaces, submit and track booking requests, join waitlists, communicate with other organizations, use the collaboration forum |
 | **Administrators** | Student Affairs / USG staff who manage spaces | Review, approve, or deny requests with a stated reason; manage room availability and closures; view analytics on demand and usage |
+| **Venue Hosts** | Employees responsible for the buildings and rooms where events are held | Manage the rooms they oversee (details, availability, closures); communicate with organizations booking their spaces |
 
 **Target Audience.** SBU itself is our primary audience. The project is guided by Student Affairs and Undergraduate Student Government (USG) leaders, whose feedback shaped the requirements below.
 
