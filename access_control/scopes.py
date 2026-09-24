@@ -1,0 +1,32 @@
+SCOPES = {
+    "read:requests": {"description": "View booking requests and their statuses."},
+    "create:requests": {"description": "Submit a new booking request for a space."},
+    "cancel:requests": {
+        "description": "Cancel one's own organization's booking request."
+    },
+    "handle:requests": {
+        "description": "Approve or deny booking requests. Cancel or make bookings for any organization."
+    },
+    "read:rooms": {"description": "View rooms, details, and availability status."},
+    "manage:rooms": {"description": "Manage room availability, closures, and details."},
+    "read:waitlist": {"description": "View waitlist entries for a space."},
+    "join:waitlist": {
+        "description": "Join or leave a waitlist for a fully-booked space."
+    },
+    "read:messages": {"description": "Read messages in one's own conversations."},
+    "send:messages": {
+        "description": "Send messages to other organizations or administrators."
+    },
+    "read:forum": {"description": "View collaboration forum posts."},
+    "post:forum": {"description": "Create or reply to collaboration forum posts."},
+    "read:analytics": {
+        "description": "View analytics on room demand, usage, and booking patterns."
+    },
+    "read:external-availability": {
+        "description": "Query current availability from the 25Live system of record."
+    },
+    "sync:external-bookings": {
+        "description": "Push approved bookings to the 25Live system of record."
+    },
+    "manage:users": {"description": "Verify E-board membership and manage user roles."},
+}
