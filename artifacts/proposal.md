@@ -23,6 +23,7 @@ CampusReserve will serve two types of users who will have different specific nee
 |------|-------------|--------------------------|
 | **Club Executive Members** | Verified E-board members of a registered organization | Search and filter spaces, submit and track booking requests, join waitlists, communicate with other organizations, use the collaboration forum |
 | **Administrators** | Student Affairs / USG staff who manage spaces | Review, approve, or deny requests with a stated reason; manage room availability and closures; view analytics on demand and usage |
+| **Venue Hosts** | Employees responsible for the buildings and rooms where events are held | Manage the rooms they oversee (details, availability, closures); communicate with organizations booking their spaces |
 
 **Target Audience.** SBU itself is our primary audience. The project is guided by Student Affairs and Undergraduate Student Government (USG) leaders, whose feedback shaped the requirements below.
 
@@ -130,7 +131,9 @@ The inspiration for this application comes from a significant common frustration
 
 ## 7. Architecture Sketch
 
-CampusReserve is a three-tier web application. A React frontend serves both roles; a Node.js and Express backend holds the authentication, booking, approval-workflow, status, and waitlist logic; and a MongoDB database stores requests, rooms, room media, messages, and forum content.
+CampusReserve is a three-tier web application. A React frontend serves both roles; a Python and FastAPI backend holds the authentication, scope-based access, booking, approval-workflow, status, and waitlist logic; and a PostgreSQL database, accessed through the SQLAlchemy ORM, stores users, organizations, venues, rooms, requests, messages, and forum content.
+
+PostgreSQL is chosen deliberately: CampusReserve's core guarantee is that a room is never double-booked, which is a transactional problem. Postgres's ACID transactions let the backend check for a conflicting booking and commit an approval as a single atomic operation, so two administrators approving overlapping requests concurrently cannot both succeed. Our data is also highly relational, which fits a relational schema naturally.
 
 The 25Live integration is intentionally designed as a sync layer with a swappable adapter. Rather than depending on write access to a production university system, we will build against a mock/test 25Live and treat real API access as an enhancement. This lets us demonstrate the full application end-to-end regardless of integration access, and it is why the diagram shows the real system as a dashed, replaceable target. This will allow us to properly test the functionality of our product prior to deployment.
 
