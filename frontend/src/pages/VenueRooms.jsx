@@ -1,7 +1,8 @@
+import OrgLink from '../components/OrgLink.jsx';
 import { ROOMS, VENUE_HOST_BUILDINGS } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
 
-export default function VenueRooms({ requests }) {
+export default function VenueRooms({ requests, onOpenClub }) {
   const rooms = ROOMS.filter(r => VENUE_HOST_BUILDINGS.includes(r.building));
   return (
     <main style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
@@ -28,7 +29,7 @@ export default function VenueRooms({ requests }) {
                   {bookings.map(b => (
                     <div key={b.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"var(--paper)",
                       borderRadius:8, padding:"8px 12px" }}>
-                      <span style={{ fontSize:14 }}><b>{b.org}</b> · {b.date} · {b.time}</span>
+                      <span style={{ fontSize:14 }}><b><OrgLink name={b.org} onOpen={onOpenClub} /></b> · {b.date} · {b.time}</span>
                       <Pill status={b.status} small />
                     </div>
                   ))}

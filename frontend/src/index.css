@@ -8,9 +8,12 @@
   --paper:#F4F6FA; --card:#FFFFFF; --line:#E7E9EF; --line-soft:#F0F1F5;
   --shadow:0 1px 2px rgba(27,42,74,.06),0 4px 16px rgba(27,42,74,.05);
   --shadow-lift:0 8px 30px rgba(27,42,74,.12);
+  color-scheme:light;
 }
 * { box-sizing:border-box; margin:0; padding:0; }
 body { font-family:'Inter',system-ui,sans-serif; background:var(--paper); color:var(--ink); line-height:1.5; }
-button { font-family:inherit; cursor:pointer; border:none; background:none; }
-textarea, input, select { font-family:inherit; }
+button { font-family:inherit; color:inherit; cursor:pointer; border:none; background:none; }
+textarea, input, select { font-family:inherit; color:var(--ink); }
+input::placeholder, textarea::placeholder { color:var(--ink-faint); opacity:1; }
+select option { color:var(--ink); background:#fff; }
 @media (prefers-reduced-motion:reduce){ * { transition:none!important; animation:none!important; } }

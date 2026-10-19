@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CONTACTS } from '../data/mock.js';
 
-export default function Messages({ threads, onSend, onStartChat, activeId, setActiveId, selfName }) {
+export default function Messages({ threads, onSend, onStartChat, activeId, setActiveId, selfName, unreadMap = {} }) {
   const mine = threads.filter(t => t.participants.includes(selfName));
   useEffect(() => { if (activeId==null && mine[0]) setActiveId(mine[0].id); }, [selfName]);
   const [draft,setDraft]=useState("");
@@ -41,7 +41,11 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
             <button key={t.id} onClick={()=>setActiveId(t.id)} style={{ display:"block", width:"100%", textAlign:"left",
               padding:"13px 15px", borderBottom:"1px solid var(--line-soft)",
               background: t.id===activeId?"var(--blue-wash)":"transparent" }}>
-              <div style={{ fontWeight:700, fontSize:14.5 }}>{other(t)}</div>
+              <div style={{ fontWeight:700, fontSize:14.5, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span>{other(t)}</span>
+                {unreadMap[t.id]>0 && <span style={{ minWidth:20, height:20, padding:"0 6px", borderRadius:999, background:"var(--red-wash)", color:"var(--red)",
+                  fontSize:12, fontWeight:700, display:"grid", placeItems:"center" }}>{unreadMap[t.id]}</span>}
+              </div>
               <div style={{ fontSize:13, color:"var(--ink-faint)", marginTop:2 }}>{t.subject}</div>
             </button>
           ))}
@@ -63,7 +67,7 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
                     <div key={i} style={{ maxWidth:"75%", alignSelf: mine2?"flex-end":"flex-start" }}>
                       <div style={{ fontSize:12, color:"var(--ink-faint)", marginBottom:3, textAlign: mine2?"right":"left" }}>{m.from} · {m.time}</div>
                       <div style={{ padding:"9px 13px", borderRadius:12, fontSize:14.5,
-                        background: mine2?"var(--blue)":"var(--line-soft)", color: mine2?"#fff":"var(--ink)" }}>{m.text}</div>
+                        background: mine2?"var(--blue-wash)":"var(--line-soft)", color:"var(--ink)" }}>{m.text}</div>
                     </div>
                   );
                 })}
@@ -74,8 +78,8 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
                   placeholder="Write a message…" style={{ flex:1, padding:"10px 13px", fontSize:14.5,
                   border:"1px solid var(--line)", borderRadius:9, background:"var(--paper)", outline:"none" }} />
                 <button disabled={!draft.trim()} onClick={()=>{ onSend(active.id,draft); setDraft(""); }} style={{
-                  padding:"10px 16px", borderRadius:9, fontSize:14.5, fontWeight:600, color:"#fff",
-                  background: draft.trim()?"var(--blue)":"var(--slate)" }}>Send</button>
+                  padding:"10px 16px", borderRadius:9, fontSize:14.5, fontWeight:600, color: draft.trim()?"var(--blue)":"var(--ink-faint)",
+                  background: draft.trim()?"var(--blue-wash)":"var(--line-soft)" }}>Send</button>
               </div>
             </>
           )}

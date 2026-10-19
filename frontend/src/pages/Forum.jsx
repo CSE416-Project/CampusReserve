@@ -1,6 +1,7 @@
+import OrgLink from '../components/OrgLink.jsx';
 import { useState } from 'react';
 
-export default function Forum({ posts, onPost, onReply, selfName }) {
+export default function Forum({ posts, onPost, onReply, selfName, onOpenClub }) {
   const [title,setTitle]=useState(""); const [body,setBody]=useState("");
   const [replyDraft,setReplyDraft]=useState({});
   return (
@@ -23,14 +24,14 @@ export default function Forum({ posts, onPost, onReply, selfName }) {
       <div style={{ display:"grid", gap:14 }}>
         {posts.map(p => (
           <div key={p.id} style={{ background:"var(--card)", border:"1px solid var(--line)", borderRadius:14, padding:18 }}>
-            <div style={{ fontSize:15, color:"var(--ink-faint)", fontWeight:600, marginBottom:4 }}>{p.org}</div>
+            <div style={{ fontSize:15, color:"var(--ink-faint)", fontWeight:600, marginBottom:4 }}><OrgLink name={p.org} onOpen={onOpenClub} /></div>
             <div style={{ fontWeight:700, fontSize:19.2, marginBottom:6 }}>{p.title}</div>
             <div style={{ fontSize:16.2, color:"var(--ink-soft)", marginBottom:12 }}>{p.body}</div>
             {p.replies.length>0 && (
               <div style={{ display:"grid", gap:8, marginBottom:12 }}>
                 {p.replies.map((r,i) => (
                   <div key={i} style={{ background:"var(--paper)", borderRadius:9, padding:"8px 12px", fontSize:15.6 }}>
-                    <b>{r.org}:</b> {r.text}
+                    <b><OrgLink name={r.org} onOpen={onOpenClub} />:</b> {r.text}
                   </div>
                 ))}
               </div>

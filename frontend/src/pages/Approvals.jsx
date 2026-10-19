@@ -1,7 +1,8 @@
+import OrgLink from '../components/OrgLink.jsx';
 import { useState } from 'react';
 import Pill from '../components/Pill.jsx';
 
-export default function Approvals({ requests, onDecide }) {
+export default function Approvals({ requests, onDecide, onOpenClub }) {
   const [tab,setTab]=useState("pending");
   const [denying,setDenying]=useState(null); const [reason,setReason]=useState("");
   const pending = requests.filter(r=>r.status==="pending");
@@ -32,7 +33,7 @@ export default function Approvals({ requests, onDecide }) {
               <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
                 <div>
                   <div style={{ fontWeight:700, fontSize:16 }}>{req.room.name}</div>
-                  <div style={{ fontSize:14, color:"var(--ink-faint)" }}>{req.org} · {req.date} · {req.time}</div>
+                  <div style={{ fontSize:14, color:"var(--ink-faint)" }}><OrgLink name={req.org} onOpen={onOpenClub} /> · {req.date} · {req.time}</div>
                   {req.status==="denied" && req.reason && <div style={{ fontSize:14, color:"var(--red)", marginTop:4 }}>Reason given: {req.reason}</div>}
                 </div>
                 <Pill status={req.status} />
