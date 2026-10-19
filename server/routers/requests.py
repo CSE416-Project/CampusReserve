@@ -11,8 +11,7 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, Query, Security, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
-from datetime import date, datetime
-from pydantic import BaseModel
+from datetime import date
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -21,7 +20,6 @@ from database import get_db
 from models.room import Request, RequestStatus
 from models.user import User
 from models.organization_and_venue import OrganizationMember
-from authentication import get_current_user
 from services import booking
 from services.live25_sync import get_provider
 from services.permissions import (
