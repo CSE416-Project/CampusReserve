@@ -1,5 +1,4 @@
 """Booking request endpoints: check, submit, view, edit, cancel, approve, deny, waitlist.
-
 Room ids are public room ids: a 25Live space_id ("1810") or our Room UUID.
 Times are campus local time (America/New_York); a timezone offset is
 accepted and converted.
@@ -12,6 +11,8 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, Query, Security, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
+from datetime import date, datetime
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -19,6 +20,8 @@ from authentication import get_current_user
 from database import get_db
 from models.room import Request, RequestStatus
 from models.user import User
+from models.organization_and_venue import OrganizationMember
+from authentication import get_current_user
 from services import booking
 from services.live25_sync import get_provider
 from services.permissions import (
@@ -207,9 +210,41 @@ async def _room_for(db: Session, public_id: str, *, create: bool):
     return room, space_id, fallback
 
 
-# =============================================================================
-# Routes. Fixed paths first, then /{request_id}.
-# =============================================================================
+def _primary_organization_id(user: User, db: Session) -> str:
+    """
+    CHANGED: `user.organization_id` was removed when OrganizationMember was
+    introduced -- a user can belong to several organizations now, not just
+    one, so there's no single column to read. This looks up their
+    membership instead.
+
+    While we're here, this also enforces NFR-1 (only a *verified* E-board
+    member can book) and the term dates from NFR-2 -- neither was being
+    checked anywhere before. An unverified "leader," or one whose term has
+    ended, gets a clear 403 instead of silently being allowed to book.
+
+    Assumes one active org per user for now, matching the original scope.
+    Letting a user pick which org when they lead more than one is a good
+    follow-up, not needed for the MVP.
+    """
+    membership = (
+        db.query(OrganizationMember)
+        .filter(
+            OrganizationMember.user_id == user.id,
+            OrganizationMember.verified_at.isnot(None),
+        )
+        .filter(
+            (OrganizationMember.term_end.is_(None))
+            | (OrganizationMember.term_end >= date.today())
+        )
+        .first()
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not a verified, active member of any organization.",
+        )
+    return str(membership.organization_id)
+
 
 @router.post("/check", response_model=CheckOut)
 async def check_request(
@@ -289,6 +324,7 @@ def list_my_requests(
     if upcoming_only:
         q = q.filter(Request.end_time >= dt.datetime.now())
     return [request_out(r) for r in q.order_by(Request.created_at.desc()).all()]
+
 
 
 @router.get("/{request_id}", response_model=RequestOut)
