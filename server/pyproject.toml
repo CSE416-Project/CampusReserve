@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Start permissive: pyflakes (F) + a subset of pycodestyle (E).
+# Tighten by adding rule groups (e.g. "I" for imports) as the code matures.
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # line too long — let the formatter handle wrapping, don't fail CI on it
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401"]  # allow unused imports in tests (fixtures, etc.)
+[tool.pytest.ini_options]
+pythonpath = ["."]  # lets tests do `from integrations... import ...`
