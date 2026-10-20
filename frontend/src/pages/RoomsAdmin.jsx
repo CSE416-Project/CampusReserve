@@ -13,13 +13,10 @@ export default function RoomsAdmin() {
     <main style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:12, marginBottom:6 }}>
         <div>
-          <h1 style={{ fontSize:26, fontWeight:800, marginBottom:6 }}>Rooms</h1>
-          <p style={{ fontSize:15, color:"var(--ink-soft)" }}>
-            Every room and what's booked in it, grouped by building — the foundation for the analytics layer.
-          </p>
+          <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>Rooms</h1>
         </div>
         <select value={building} onChange={e=>setBuilding(e.target.value)} style={{ padding:"9px 12px", fontSize:14.5,
-          border:"1px solid var(--line)", borderRadius:9, background:"var(--card)" }}>
+          border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)" }}>
           {BUILDINGS.map(b=><option key={b}>{b}</option>)}
         </select>
       </div>
@@ -31,7 +28,7 @@ export default function RoomsAdmin() {
             {g.rooms.map(r => {
               const events = upcomingEvents(r);
               return (
-                <div key={r.id} style={{ background:"var(--card)", border:"1px solid var(--line)", borderRadius:14, padding:16, boxShadow:"var(--shadow)" }}>
+                <div key={r.id} style={{ background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, padding:16, boxShadow:"var(--shadow)" }}>
                   <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:10, marginBottom:10 }}>
                     <div>
                       <div style={{ fontWeight:700, fontSize:16 }}>{r.name}</div>

@@ -35,8 +35,8 @@ export default function App() {
     { id:3, room:ROOMS[2], org:"Tech Club", date:D[1].label, time:"16:00", status:"approved" },
     { id:4, room:ROOMS[4], org:"Media Club", date:D[2].label, time:"14:00", status:"approved" },
   ]);
-  const submitRequest = (room,picks) => {
-    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org:"Robotics Club", date:p.label, time:p.time, status:"pending" }))]);
+  const submitRequest = (room,picks,org) => {
+    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:p.time, status:"pending" }))]);
   };
   const decide = (id,status,reason) => {
     setRequests(r => r.map(req => req.id===id ? { ...req, status, reason } : req));
@@ -87,7 +87,7 @@ export default function App() {
 
   return (
     <div>
-      <Header role={role} setRole={r=>changeRole(r, HOME[r])} page={page} setPage={p=>{ setPage(p); setViewingRoom(null); setViewingClub(null); }}
+      <Header role={role} page={page} setPage={p=>{ setPage(p); setViewingRoom(null); setViewingClub(null); }}
         onProfile={()=>{ setPage("profile"); setViewingRoom(null); setViewingClub(null); }} unread={unreadTotal} onLogout={()=>{ setOpenRoom(null); setAuthView("login"); }} />
 
       {viewingClub ? (
@@ -97,7 +97,7 @@ export default function App() {
       ) : (
         <>
           {role==="leader" && page==="find" && <FindSpace onView={setViewingRoom} onBook={setOpenRoom} />}
-          {role==="leader" && page==="requests" && <MyRequests requests={requests.filter(r=>r.org==="Robotics Club")} />}
+          {role==="leader" && page==="requests" && <MyRequests requests={requests.filter(r=>profiles.leader.orgs.includes(r.org))} showOrg={profiles.leader.orgs.length>1} />}
           {role==="admin" && page==="approvals" && <Approvals requests={requests} onDecide={decide} onOpenClub={openClub} />}
           {role==="admin" && page==="rooms" && <RoomsAdmin />}
           {role==="venue" && page==="rooms" && <VenueRooms requests={requests} onOpenClub={openClub} />}
@@ -110,7 +110,7 @@ export default function App() {
         </>
       )}
 
-      {openRoom && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} />}
+      {openRoom && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={profiles.leader.orgs} />}
     </div>
   );
 }
