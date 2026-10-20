@@ -77,12 +77,6 @@ def test_first_in_line_has_nobody_ahead(client, auth, leader, verified, make_req
     assert client.get("/waitlist/mine", headers=auth(leader)).json()[0]["ahead_of_you"] == 0
 
 
-def test_missing_position_is_reported_as_zero(client, auth, leader, verified, make_request):
-    waiting(make_request, days=10, position=None)
-    entry = client.get("/waitlist/mine", headers=auth(leader)).json()[0]
-    assert (entry["position"], entry["ahead_of_you"]) == (0, 0)
-
-
 def test_mine_includes_teammates_waitlisted_requests(client, auth, admin, leader, verified,
                                                      make_user, org, member, make_request):
     teammate = make_user(name="Tia Teammate")

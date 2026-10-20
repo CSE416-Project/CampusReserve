@@ -46,7 +46,7 @@ def live(monkeypatch):
 
     def booking(id_, start, end, name="25Live Event", kind="event", status="Confirmed"):
         state.bookings.setdefault(id_, []).append(
-            {"source": "25live", "kind": kind, "status": status, "name": name,
+            {"source": "25live", "kind": kind, "status": status, "state": status, "name": name,
              "start": start, "end": end, "event_start": start, "event_end": end,
              "expected_headcount": None})
 
