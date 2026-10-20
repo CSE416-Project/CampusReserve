@@ -213,3 +213,32 @@ export function upcomingEvents(room) {
   });
   return out;
 }
+
+export const CLUBS = [
+  { name:"Robotics Club", category:"Technical", bio:"We design, build, and compete with autonomous robots, and run weekly build nights open to all majors.",
+    eboard:[{name:"Jane Doe",title:"President",holder:true,email:"jane.doe@stonybrook.edu"},{name:"Marcus Lee",title:"Vice President",email:"marcus.lee@stonybrook.edu"},
+            {name:"Priya Nair",title:"Treasurer",email:"priya.nair@stonybrook.edu"},{name:"Tom Becker",title:"Secretary",email:"tom.becker@stonybrook.edu"}] },
+  { name:"Dance Collective", category:"Performance", bio:"A student-run dance community covering hip-hop, contemporary, and cultural styles, with two showcases a year.",
+    eboard:[{name:"Ava Martinez",title:"President",holder:true,email:"ava.martinez@stonybrook.edu"},{name:"Noah Kim",title:"Vice President",email:"noah.kim@stonybrook.edu"},
+            {name:"Lena Brooks",title:"Treasurer",email:"lena.brooks@stonybrook.edu"}] },
+  { name:"Media Club", category:"Media", bio:"Photography, video, and podcasting for campus events. We cover clubs for free and share gear.",
+    eboard:[{name:"Daniel Cho",title:"President",holder:true,email:"daniel.cho@stonybrook.edu"},{name:"Sofia Rossi",title:"Vice President",email:"sofia.rossi@stonybrook.edu"},
+            {name:"Omar Haddad",title:"Treasurer",email:"omar.haddad@stonybrook.edu"}] },
+  { name:"K-Pop Dance Crew", category:"Performance", bio:"Cover dance practice twice a week and performances at cultural events.",
+    eboard:[{name:"Grace Park",title:"President",holder:true,email:"grace.park@stonybrook.edu"},{name:"Ethan Wu",title:"Treasurer",email:"ethan.wu@stonybrook.edu"}] },
+  { name:"Debate Society", category:"Academic", bio:"Parliamentary and policy debate, with weekly practice rounds and regional tournaments.",
+    eboard:[{name:"Hannah Cole",title:"President",holder:true,email:"hannah.cole@stonybrook.edu"},{name:"Ravi Patel",title:"Vice President",email:"ravi.patel@stonybrook.edu"},
+            {name:"Mia Torres",title:"Secretary",email:"mia.torres@stonybrook.edu"}] },
+  { name:"Tech Club", category:"Technical", bio:"Workshops, hack nights, and speaker events on software, hardware, and careers in tech.",
+    eboard:[{name:"Kevin Zhang",title:"President",holder:true,email:"kevin.zhang@stonybrook.edu"},{name:"Aisha Khan",title:"Vice President",email:"aisha.khan@stonybrook.edu"},
+            {name:"Leo Grant",title:"Treasurer",email:"leo.grant@stonybrook.edu"},
+            {name:"Jane Doe",title:"Outreach Chair",email:"jane.doe@stonybrook.edu"}] },
+  { name:"A Cappella Group", category:"Performance", bio:"Student a cappella group performing pop arrangements at campus concerts and competitions.",
+    eboard:[{name:"Isabel Reyes",title:"President",holder:true,email:"isabel.reyes@stonybrook.edu"},{name:"Jack Murphy",title:"Music Director",email:"jack.murphy@stonybrook.edu"}] },
+];
+
+export const PROFILES = {
+  leader:{ name:"Jane Doe", email:"jane.doe@stonybrook.edu", title:"President", org:"Robotics Club", orgs:["Robotics Club","Tech Club"], bio:"Computer engineering senior. Happy to share build space and tools with other clubs." },
+  admin:{ name:"Alex Rivera", email:"alex.rivera@stonybrook.edu", title:"Student Affairs staff", org:null, bio:"Reviews space requests for student organizations." },
+  venue:{ name:"Sam Patel", email:"sam.patel@stonybrook.edu", title:"Venue host — SAC & Staller Center", org:null, bio:"Reach out for setup, access, and equipment questions." },
+};
