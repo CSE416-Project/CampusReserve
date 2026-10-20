@@ -1,16 +1,32 @@
 :root {
-  --ink:#1B2A4A; --ink-soft:#45536E; --ink-faint:#8A94A8;
-  --blue:#2E5CE6; --blue-wash:#EEF2FE;
-  --green:#0FA968; --green-wash:#E6F6EF;
-  --amber:#E8912D; --amber-wash:#FCF1E1;
-  --red:#D9463D; --red-wash:#FBEAEA;
-  --slate:#94A3B8; --slate-wash:#EEF1F5;
-  --paper:#F4F6FA; --card:#FFFFFF; --line:#E7E9EF; --line-soft:#F0F1F5;
-  --shadow:0 1px 2px rgba(27,42,74,.06),0 4px 16px rgba(27,42,74,.05);
-  --shadow-lift:0 8px 30px rgba(27,42,74,.12);
+  --ink:#1B2A4A; --ink-soft:#45536E; --ink-faint:#74809A;
+  --blue:#FFC93C; --link:#1F5FD1; --blue-wash:#E3F0FF;
+  --green:#13795B; --mint:#9BE3C3; --green-wash:#DDF5EA;
+  --amber:#A85A00; --amber-wash:#FFF0CC;
+  --red:#B8321F; --rose:#FFB4A2; --red-wash:#FFE3DC;
+  --slate:#8794AB; --slate-wash:#E9EDF3;
+  --paper:#F4F6FA; --card:#FFFFFF; --line:#D5DCE8; --line-soft:#EDF1F7;
+  --shadow:3px 3px 0 #1B2A4A;
+  --shadow-lift:5px 5px 0 #1B2A4A;
+  --display:'Righteous','DM Sans',system-ui,sans-serif;
+  color-scheme:light;
 }
 * { box-sizing:border-box; margin:0; padding:0; }
-body { font-family:'Inter',system-ui,sans-serif; background:var(--paper); color:var(--ink); line-height:1.5; }
-button { font-family:inherit; cursor:pointer; border:none; background:none; }
-textarea, input, select { font-family:inherit; }
+body {
+  font-family:'DM Sans',system-ui,sans-serif; color:var(--ink); line-height:1.5; background-color:var(--paper);
+  background-image:radial-gradient(#C7D0E0 1px, transparent 1.3px); background-size:20px 20px;
+}
+h1, h2, h3 { font-family:var(--display); font-weight:400 !important; letter-spacing:.01em; }
+button { font-family:inherit; color:inherit; cursor:pointer; border:none; background:none;
+  transition:transform .1s ease, box-shadow .1s ease; }
+button[style*="var(--blue)"], button[style*="var(--mint)"], button[style*="var(--rose)"] {
+  border:2px solid var(--ink) !important; box-shadow:2px 2px 0 var(--ink); font-weight:700; }
+button:hover:not(:disabled) { transform:translate(-1px,-1px); }
+button[style*="var(--blue)"]:hover:not(:disabled), button[style*="var(--mint)"]:hover:not(:disabled), button[style*="var(--rose)"]:hover:not(:disabled) { box-shadow:3px 3px 0 var(--ink); }
+button:active:not(:disabled) { transform:translate(1px,1px); box-shadow:0 0 0 var(--ink); }
+button:disabled { opacity:.55; cursor:not-allowed; }
+textarea, input, select { font-family:inherit; color:var(--ink); }
+input::placeholder, textarea::placeholder { color:var(--ink-faint); opacity:1; }
+select option { color:var(--ink); background:#fff; }
+input:focus, textarea:focus, select:focus { box-shadow:3px 3px 0 var(--blue); }
 @media (prefers-reduced-motion:reduce){ * { transition:none!important; animation:none!important; } }
