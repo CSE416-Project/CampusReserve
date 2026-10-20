@@ -177,10 +177,18 @@ class NotificationType(str, enum.Enum):
     REQUEST_DENIED = "request_denied"
     WAITLIST_PROMOTED = "waitlist_promoted"
     NEW_MESSAGE = "new_message"
+    # ADDED for the request/admin workflow:
+    REQUEST_SUBMITTED = "request_submitted"      # to admins: a request needs review
+    REQUEST_WAITLISTED = "request_waitlisted"    # to the org: you're in line for a slot
+    REQUEST_CANCELLED = "request_cancelled"      # to the org: a booking was cancelled
+    SYNC_NEEDED = "sync_needed"                  # to admins: enter an approval in 25Live
+    SYNC_FAILED = "sync_failed"                  # to admins: pushing to 25Live failed
+    MEMBERSHIP_REQUESTED = "membership_requested"  # to admins: someone wants verifying
+    MEMBERSHIP_VERIFIED = "membership_verified"    # to the user: you can now book
 
 
 class Notification(Base):
-    """An in-app notification for a user (FR-7). Email delivery is a later enhancement."""
+    """An in-app notification for a user (FR-7). services/notify.py also emails it."""
 
     __tablename__ = "notifications"
 
