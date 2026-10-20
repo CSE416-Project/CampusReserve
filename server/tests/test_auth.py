@@ -1,106 +1,172 @@
-"""Tests for the authentication flow: register → login → access protected route."""
+"""Tests for routers/auth.py: register, login (/auth/token) and /auth/me.
+
+Uses the fixtures in conftest.py (a rolled-back test database, users, tokens).
+"""
+
+from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from main import app
-from database import get_db
-from models.base import Base
-import os
+from models.user import User, UserRole
+
+PASSWORD = "testpass123"  # the password conftest's make_user gives every user
 
 
-# --- Test database: in-memory SQLite, fresh per test session ---
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://postgres:postgres@localhost:5432/campusreserve_test",
-)
-engine = create_engine(TEST_DATABASE_URL)
-TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+def register(client, email="new@example.com", name="New Person", password="s3cret-pass"):
+    return client.post("/auth/register",
+                       json={"email": email, "name": name, "password": password})
 
 
-@pytest.fixture
-def client():
-    """A test client backed by a fresh in-memory database."""
-
-    with engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS btree_gist"))
-        conn.commit()
-    Base.metadata.create_all(bind=engine)
-
-    def override_get_db():
-        db = TestingSessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    yield TestClient(app)
-
-    # teardown: drop everything and clear the override
-    Base.metadata.drop_all(bind=engine)
-    app.dependency_overrides.clear()
+def login(client, username, password=PASSWORD):
+    # OAuth2 password flow: form fields, not JSON, and the email goes in "username".
+    return client.post("/auth/token", data={"username": username, "password": password})
 
 
-def test_register_creates_user(client):
-    resp = client.post("/auth/register", json={
-        "email": "leader@stonybrook.edu",
-        "name": "Test Leader",
-        "password": "secret123",
-    })
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["email"] == "leader@stonybrook.edu"
-    assert body["role"] == "club_leader"
-    assert "password" not in body          # never leak the password
-    assert "password_hash" not in body     # never leak the hash
+# =============================================================================
+# POST /auth/register
+# =============================================================================
+
+def test_register_creates_a_club_leader(client):
+    r = register(client)
+
+    assert r.status_code == 201
+    body = r.json()
+    assert body["email"] == "new@example.com"
+    assert body["name"] == "New Person"
+    assert body["role"] == UserRole.CLUB_LEADER.value
+    assert body["id"]
 
 
-def test_register_duplicate_email_rejected(client):
-    payload = {"email": "dup@stonybrook.edu", "name": "A", "password": "pw12345"}
-    client.post("/auth/register", json=payload)
-    resp = client.post("/auth/register", json=payload)
-    assert resp.status_code == 409
+def test_register_never_returns_the_password(client):
+    body = register(client).json()
+    assert "password" not in body and "password_hash" not in body
 
 
-def test_login_and_access_protected_route(client):
-    client.post("/auth/register", json={
-        "email": "me@stonybrook.edu",
-        "name": "Me",
-        "password": "secret123",
-    })
-
-    # log in — OAuth2 form uses "username" for the email field
-    login = client.post("/auth/token", data={
-        "username": "me@stonybrook.edu",
-        "password": "secret123",
-    })
-    assert login.status_code == 200
-    token = login.json()["access_token"]
-    assert token
-
-    # use the token on a protected endpoint
-    me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert me.status_code == 200
-    assert me.json()["email"] == "me@stonybrook.edu"
+def test_register_stores_a_hash_not_the_password(client, db):
+    register(client, password="plain-text-pw")
+    user = db.query(User).filter(User.email == "new@example.com").one()
+    assert user.password_hash and user.password_hash != "plain-text-pw"
 
 
-def test_login_wrong_password_rejected(client):
-    client.post("/auth/register", json={
-        "email": "x@stonybrook.edu",
-        "name": "X",
-        "password": "correct-pw",
-    })
-    resp = client.post("/auth/token", data={
-        "username": "x@stonybrook.edu",
-        "password": "wrong-pw",
-    })
-    assert resp.status_code == 401
+def test_register_duplicate_email_is_409(client):
+    register(client)
+    r = register(client, name="Someone Else")
+    assert r.status_code == 409
 
 
-def test_protected_route_without_token_rejected(client):
-    resp = client.get("/auth/me")
-    assert resp.status_code == 401
+@pytest.mark.xfail(reason="Emails are compared case-sensitively, so the same address with "
+                          "different capitals creates a second account.", strict=False)
+def test_register_duplicate_email_ignores_case(client):
+    register(client, email="casey@example.com")
+    assert register(client, email="Casey@example.com").status_code == 409
+
+
+@pytest.mark.parametrize("email", ["not-an-email", "missing-at.test.local", "a@", ""])
+def test_register_rejects_invalid_emails(client, email):
+    assert register(client, email=email).status_code == 422
+
+
+@pytest.mark.parametrize("missing", ["email", "name", "password"])
+def test_register_requires_every_field(client, missing):
+    body = {"email": "new@example.com", "name": "New Person", "password": "s3cret-pass"}
+    body.pop(missing)
+    assert client.post("/auth/register", json=body).status_code == 422
+
+
+def test_registered_user_can_log_in(client):
+    register(client, email="fresh@example.com", password="fresh-pass-1")
+    r = login(client, "fresh@example.com", "fresh-pass-1")
+    assert r.status_code == 200
+
+
+# =============================================================================
+# POST /auth/token
+# =============================================================================
+
+def test_login_returns_a_bearer_token(client, leader):
+    r = login(client, leader.email)
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["token_type"] == "bearer"
+    assert body["access_token"]
+
+
+def test_login_token_works_on_me(client, leader):
+    token = login(client, leader.email).json()["access_token"]
+    r = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200 and r.json()["email"] == leader.email
+
+
+def test_login_wrong_password_is_401(client, leader):
+    r = login(client, leader.email, "wrong-password")
+
+    assert r.status_code == 401
+    assert r.headers.get("www-authenticate") == "Bearer"
+
+
+def test_login_unknown_email_is_401(client):
+    r = login(client, "nobody@example.com")
+    assert r.status_code == 401
+
+
+def test_login_errors_dont_reveal_which_part_was_wrong(client, leader):
+    wrong_pw = login(client, leader.email, "wrong-password").json()
+    no_user = login(client, "nobody@example.com").json()
+    assert wrong_pw == no_user
+
+
+@pytest.mark.parametrize("missing", ["username", "password"])
+def test_login_requires_both_fields(client, leader, missing):
+    data = {"username": leader.email, "password": PASSWORD}
+    data.pop(missing)
+    assert client.post("/auth/token", data=data).status_code == 422
+
+
+def test_login_rejects_json_bodies(client, leader):
+    # The token endpoint takes form data; JSON is a common frontend mistake.
+    r = client.post("/auth/token", json={"username": leader.email, "password": PASSWORD})
+    assert r.status_code == 422
+
+
+def test_deactivated_user_is_locked_out(client, make_user):
+    """Admins deactivate users with PATCH /admin/users. Either login is refused,
+    or the token it gives can't be used."""
+    user = make_user(is_active=False)
+    r = login(client, user.email)
+    if r.status_code == 200:
+        token = r.json()["access_token"]
+        me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.status_code in (401, 403)
+    else:
+        assert r.status_code in (400, 401, 403)
+
+
+# =============================================================================
+# GET /auth/me
+# =============================================================================
+
+def test_me_returns_the_logged_in_user(client, auth, admin):
+    r = client.get("/auth/me", headers=auth(admin))
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {"id": str(admin.id), "email": admin.email, "name": admin.name,
+                    "role": UserRole.ADMIN.value}
+
+
+def test_me_without_a_token_is_401(client):
+    assert client.get("/auth/me").status_code == 401
+
+
+@pytest.mark.parametrize("header", ["Bearer not-a-real-token", "Bearer ", "Basic abc123"])
+def test_me_with_a_bad_token_is_401(client, header):
+    assert client.get("/auth/me", headers={"Authorization": header}).status_code == 401
+
+
+def test_me_with_a_tampered_token_is_401(client, auth, leader):
+    token = auth(leader)["Authorization"].removeprefix("Bearer ")
+    head, payload, sig = token.split(".")
+    tampered = f"{head}.{payload}.{sig[:-2]}{'AA' if sig[-2:] != 'AA' else 'BB'}"
+    r = client.get("/auth/me", headers={"Authorization": f"Bearer {tampered}"})
+    assert r.status_code == 401
