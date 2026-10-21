@@ -36,7 +36,7 @@ app = FastAPI(title="CampusReserve", lifespan=lifespan)
 # still work fine without it, since those aren't cross-origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://campusreserve.onrender.com"],
+    allow_origins=["http://localhost:5173", "https://campusreserve-1.onrender.com"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
