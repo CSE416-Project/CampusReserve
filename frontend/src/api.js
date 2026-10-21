@@ -4,11 +4,11 @@ const BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 export const LIVE = !!BASE;
 
 let token = null;
-try { token = sessionStorage.getItem("cr_token"); } catch { /* storage unavailable */ }
+try { token = localStorage.getItem("cr_token"); } catch { /* storage unavailable */ }
 export const hasToken = () => !!token;
 export function setToken(t) {
   token = t;
-  try { t ? sessionStorage.setItem("cr_token", t) : sessionStorage.removeItem("cr_token"); } catch { /* ignore */ }
+  try { t ? localStorage.setItem("cr_token", t) : localStorage.removeItem("cr_token"); } catch { /* ignore */ }
 }
 
 function errorMessage(data, status) {
