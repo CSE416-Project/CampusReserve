@@ -129,25 +129,24 @@ export const ROOMS = [
   { id:12, name:"Studio Theater", building:"Staller Center", type:"Theater", cap:100, status:"available", features:["Stage", "Lighting - Blackout", "Gobo Light", "Stage Skirting", "Chairs - Loose", "Food Permitted"], note:"Setup & cleanup time available", closed:false, slots:SLOTS, taken:[], requested:[] },
 ];
 
-export const CONTACTS = ["Robotics Club","Dance Collective","Media Club","K-Pop Dance Crew","Debate Society","Tech Club","A Cappella Group","Venue Host","Student Affairs"];
-
+// Mock conversations are between people (ids are their emails), not clubs.
 export const THREADS = [
-  { id:1, participants:["Robotics Club","Dance Collective"], subject:"Staller Theater Lobby handoff",
+  { id:1, participants:[{ id:"jane.doe@stonybrook.edu", name:"Jane Doe" },{ id:"ava.martinez@stonybrook.edu", name:"Ava Martinez" }], subject:"Staller Theater Lobby handoff",
     messages:[
-      { from:"Dance Collective", text:"Hey — we have the lobby 12–1 today, looks like you're right after us at 1?", time:"9:40 AM" },
-      { from:"Robotics Club", text:"Yep, happy to help move chairs back if that speeds up your teardown.", time:"9:52 AM" },
+      { fromId:"ava.martinez@stonybrook.edu", from:"Ava Martinez", text:"Hey, we have the lobby 12–1 today and it looks like you're right after us at 1?", time:"9:40 AM" },
+      { fromId:"jane.doe@stonybrook.edu", from:"Jane Doe", text:"Yep, happy to help move chairs back if that speeds up your teardown.", time:"9:52 AM" },
     ] },
-  { id:2, participants:["Robotics Club","Venue Host"], subject:"Ballroom A — sound board access",
+  { id:2, participants:[{ id:"jane.doe@stonybrook.edu", name:"Jane Doe" },{ id:"sam.patel@stonybrook.edu", name:"Sam Patel" }], subject:"Ballroom A — sound board access",
     messages:[
-      { from:"Venue Host", text:"Approved for 6–9 PM. I'll leave the sound board unlocked for your setup window.", time:"Yesterday" },
+      { fromId:"sam.patel@stonybrook.edu", from:"Sam Patel", text:"Approved for 6–9 PM. I'll leave the sound board unlocked for your setup window.", time:"Yesterday" },
     ] },
 ];
 
 export const FORUM_POSTS = [
-  { id:1, org:"Media Club", title:"Anyone have spare folding tables this weekend?",
+  { id:1, author:"Daniel Cho", org:"Media Club", category:"resource_share", title:"Anyone have spare folding tables this weekend?",
     body:"We're short two tables for a Saturday event and Facilities is out until Monday. Happy to return them Sunday night.",
-    replies:[{ org:"Robotics Club", text:"We have 3 you can borrow — I'll message you." }] },
-  { id:2, org:"Dance Collective", title:"Looking to co-host a showcase next month",
+    replies:[{ author:"Jane Doe", org:"Robotics Club", text:"We have 3 you can borrow. I'll message you." }] },
+  { id:2, author:"Ava Martinez", org:"Dance Collective", category:"collaboration", title:"Looking to co-host a showcase next month",
     body:"Open to splitting SAC Ballroom A rental and cross-promoting if another performance group wants to co-host.",
     replies:[] },
 ];
@@ -159,6 +158,7 @@ export const STATUS = {
   pending:{ label:"Pending review", fg:"var(--amber)", bg:"var(--amber-wash)" },
   approved:{ label:"Approved", fg:"var(--green)", bg:"var(--green-wash)" },
   denied:{ label:"Denied", fg:"var(--red)", bg:"var(--red-wash)" },
+  cancelled:{ label:"Cancelled", fg:"var(--ink-soft)", bg:"var(--slate-wash)" },
 };
 
 const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -203,6 +203,7 @@ export function roomNotes(room) { return ROOM_NOTES[room.id] || ROOM_NOTES.defau
 
 const EVENT_ORGS = ["Dance Collective","Media Club","K-Pop Dance Crew","Debate Society","Tech Club","A Cappella Group"];
 export function upcomingEvents(room) {
+  if (room.live) return [];
   const days = getDays(6);
   const out = [];
   days.forEach((d, i) => {
@@ -213,3 +214,41 @@ export function upcomingEvents(room) {
   });
   return out;
 }
+
+export const CLUBS = [
+  { name:"Robotics Club", category:"Technical", bio:"We design, build, and compete with autonomous robots, and run weekly build nights open to all majors.",
+    eboard:[{name:"Jane Doe",title:"President",holder:true,email:"jane.doe@stonybrook.edu"},{name:"Marcus Lee",title:"Vice President",email:"marcus.lee@stonybrook.edu"},
+            {name:"Priya Nair",title:"Treasurer",email:"priya.nair@stonybrook.edu"},{name:"Tom Becker",title:"Secretary",email:"tom.becker@stonybrook.edu"}] },
+  { name:"Dance Collective", category:"Performance", bio:"A student-run dance community covering hip-hop, contemporary, and cultural styles, with two showcases a year.",
+    eboard:[{name:"Ava Martinez",title:"President",holder:true,email:"ava.martinez@stonybrook.edu"},{name:"Noah Kim",title:"Vice President",email:"noah.kim@stonybrook.edu"},
+            {name:"Lena Brooks",title:"Treasurer",email:"lena.brooks@stonybrook.edu"}] },
+  { name:"Media Club", category:"Media", bio:"Photography, video, and podcasting for campus events. We cover clubs for free and share gear.",
+    eboard:[{name:"Daniel Cho",title:"President",holder:true,email:"daniel.cho@stonybrook.edu"},{name:"Sofia Rossi",title:"Vice President",email:"sofia.rossi@stonybrook.edu"},
+            {name:"Omar Haddad",title:"Treasurer",email:"omar.haddad@stonybrook.edu"}] },
+  { name:"K-Pop Dance Crew", category:"Performance", bio:"Cover dance practice twice a week and performances at cultural events.",
+    eboard:[{name:"Grace Park",title:"President",holder:true,email:"grace.park@stonybrook.edu"},{name:"Ethan Wu",title:"Treasurer",email:"ethan.wu@stonybrook.edu"}] },
+  { name:"Debate Society", category:"Academic", bio:"Parliamentary and policy debate, with weekly practice rounds and regional tournaments.",
+    eboard:[{name:"Hannah Cole",title:"President",holder:true,email:"hannah.cole@stonybrook.edu"},{name:"Ravi Patel",title:"Vice President",email:"ravi.patel@stonybrook.edu"},
+            {name:"Mia Torres",title:"Secretary",email:"mia.torres@stonybrook.edu"}] },
+  { name:"Tech Club", category:"Technical", bio:"Workshops, hack nights, and speaker events on software, hardware, and careers in tech.",
+    eboard:[{name:"Kevin Zhang",title:"President",holder:true,email:"kevin.zhang@stonybrook.edu"},{name:"Aisha Khan",title:"Vice President",email:"aisha.khan@stonybrook.edu"},
+            {name:"Leo Grant",title:"Treasurer",email:"leo.grant@stonybrook.edu"},
+            {name:"Jane Doe",title:"Outreach Chair",email:"jane.doe@stonybrook.edu"}] },
+  { name:"A Cappella Group", category:"Performance", bio:"Student a cappella group performing pop arrangements at campus concerts and competitions.",
+    eboard:[{name:"Isabel Reyes",title:"President",holder:true,email:"isabel.reyes@stonybrook.edu"},{name:"Jack Murphy",title:"Music Director",email:"jack.murphy@stonybrook.edu"}] },
+];
+
+export const PROFILES = {
+  leader:{ name:"Jane Doe", email:"jane.doe@stonybrook.edu", title:"President", org:"Robotics Club", orgs:["Robotics Club","Tech Club"], bio:"Computer engineering senior. Happy to share build space and tools with other clubs." },
+  admin:{ name:"Alex Rivera", email:"alex.rivera@stonybrook.edu", title:"Student Affairs staff", org:null, bio:"Reviews space requests for student organizations." },
+  venue:{ name:"Sam Patel", email:"sam.patel@stonybrook.edu", title:"Venue host — SAC & Staller Center", org:null, bio:"Reach out for setup, access, and equipment questions." },
+};
+
+// People you can message in the mock demo: every e-board member, plus the admin and venue host.
+export const PEOPLE = (() => {
+  const m = new Map();
+  CLUBS.forEach(c => c.eboard.forEach(p => { if (!m.has(p.email)) m.set(p.email, { id:p.email, name:p.name, sub:`${p.title} · ${c.name}` }); }));
+  m.set("alex.rivera@stonybrook.edu", { id:"alex.rivera@stonybrook.edu", name:"Alex Rivera", sub:"Administrator" });
+  m.set("sam.patel@stonybrook.edu", { id:"sam.patel@stonybrook.edu", name:"Sam Patel", sub:"Venue host" });
+  return [...m.values()];
+})();

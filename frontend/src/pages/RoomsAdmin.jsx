@@ -2,36 +2,47 @@ import { useState } from 'react';
 import { ROOMS, BUILDINGS, upcomingEvents } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
 
-export default function RoomsAdmin() {
-  const [building,setBuilding]=useState(BUILDINGS[0]);
-  const groups = BUILDINGS.slice(1)
-    .filter(b => building===BUILDINGS[0] || b===building)
-    .map(b => ({ building:b, rooms:ROOMS.filter(r=>r.building===b) }))
+// rooms/requests come from the server when the app is connected to it (live);
+// otherwise the sample data is used for the demo.
+export default function RoomsAdmin({ rooms, requests = [], loading = false }) {
+  const live = !!rooms && rooms.some(r => r.live);
+  const roomList = live ? rooms : ROOMS;
+  const buildingList = live ? ["All buildings", ...[...new Set(roomList.map(r => r.building))].sort()] : BUILDINGS;
+  const [building,setBuilding]=useState("All buildings");
+  const groups = buildingList.slice(1)
+    .filter(b => building==="All buildings" || b===building)
+    .map(b => ({ building:b, rooms:roomList.filter(r=>r.building===b) }))
     .filter(g => g.rooms.length>0);
+  const eventsFor = r => live
+    ? requests.filter(q => q.room?.id===r.id && (q.status==="approved" || q.status==="pending"))
+        .map(q => ({ org:q.org, title:q.event || "Booking", date:q.date, time:q.time }))
+    : upcomingEvents(r);
 
   return (
     <main style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:12, marginBottom:6 }}>
         <div>
-          <h1 style={{ fontSize:26, fontWeight:800, marginBottom:6 }}>Rooms</h1>
-          <p style={{ fontSize:15, color:"var(--ink-soft)" }}>
-            Every room and what's booked in it, grouped by building — the foundation for the analytics layer.
-          </p>
+          <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>Rooms</h1>
         </div>
         <select value={building} onChange={e=>setBuilding(e.target.value)} style={{ padding:"9px 12px", fontSize:14.5,
-          border:"1px solid var(--line)", borderRadius:9, background:"var(--card)" }}>
-          {BUILDINGS.map(b=><option key={b}>{b}</option>)}
+          border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)" }}>
+          {buildingList.map(b=><option key={b}>{b}</option>)}
         </select>
       </div>
 
+      {loading && <div style={{ marginTop:26, color:"var(--ink-faint)" }}>Loading rooms…</div>}
+      {!loading && groups.length===0 && (
+        <div style={{ marginTop:26, textAlign:"center", padding:"50px 20px", color:"var(--ink-faint)", background:"var(--card)",
+          borderRadius:14, border:"2px dashed var(--ink-faint)" }}>No rooms found.</div>
+      )}
       {groups.map(g => (
         <div key={g.building} style={{ marginTop:26 }}>
           <div style={{ fontSize:16, fontWeight:800, marginBottom:12, color:"var(--ink)" }}>{g.building}</div>
           <div style={{ display:"grid", gap:14 }}>
             {g.rooms.map(r => {
-              const events = upcomingEvents(r);
+              const events = eventsFor(r);
               return (
-                <div key={r.id} style={{ background:"var(--card)", border:"1px solid var(--line)", borderRadius:14, padding:16, boxShadow:"var(--shadow)" }}>
+                <div key={r.id} style={{ background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, padding:16, boxShadow:"var(--shadow)" }}>
                   <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:10, marginBottom:10 }}>
                     <div>
                       <div style={{ fontWeight:700, fontSize:16 }}>{r.name}</div>

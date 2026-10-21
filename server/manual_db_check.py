@@ -19,10 +19,12 @@ What this does:
 """
 
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -32,10 +34,20 @@ from models import Base, Organization, Venue, Room, Request, RequestStatus
 
 load_dotenv()
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-engine = create_engine(DATABASE_URL, echo=False)
+DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or os.environ["DATABASE_URL"]
+url = make_url(DATABASE_URL)
 
-print(f"Connecting to {DATABASE_URL} ...")
+# SAFETY: this script DROPS EVERY TABLE. Refuse to run against any database
+# that isn't on this machine (for example the shared Supabase database).
+if url.host not in (None, "localhost", "127.0.0.1", "::1"):
+    print(f"REFUSING to run: {url.host} is not a local database.")
+    print("This script deletes all data. Set TEST_DATABASE_URL in .env to a LOCAL database.")
+    sys.exit(1)
+
+engine = create_engine(url, echo=False)
+
+# Password hidden, so it is safe to show on a projector.
+print(f"Connecting to {url.render_as_string(hide_password=True)} ...")
 
 with engine.begin() as conn:
     conn.execute(text("CREATE EXTENSION IF NOT EXISTS btree_gist"))

@@ -7,12 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 
 from database import get_db
-from routers import admin, auth, me, notifications, organizations, requests, rooms, waitlist
+from routers import admin, auth, me, forum, messages, notifications, organizations, requests, rooms, waitlist
 from services import live25
 from services.request_flow import run_waitlist_loop
 
 logging.basicConfig(level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)  # don't log every 25Live request
+logging.getLogger("httpx").setLevel(logging.WARNING)  # don't log every 25Live reques
 
 
 @asynccontextmanager
@@ -36,7 +36,7 @@ app = FastAPI(title="CampusReserve", lifespan=lifespan)
 # still work fine without it, since those aren't cross-origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://campusreserve.onrender.com"],
+    allow_origins=["http://localhost:5173", "https://campusreserve-1.onrender.com"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -47,5 +47,7 @@ app.include_router(requests.router)
 app.include_router(waitlist.router)
 app.include_router(organizations.router)
 app.include_router(notifications.router)
+app.include_router(messages.router)
+app.include_router(forum.router)
 app.include_router(me.router)
 app.include_router(admin.router)

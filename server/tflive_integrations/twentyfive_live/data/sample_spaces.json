@@ -1,0 +1,17 @@
+{
+  "_note": "Snapshot of real 25Live room records (Computer Science Building) from the spaces.json feed, taken 2026-10-17. Only a subset of fields is kept. Refresh before relying on it.",
+  "spaces": [
+    {"space_id": 2583, "space_name": "COMPSI 1205", "formal_name": "Computer Science Building - 1205", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 10, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 2574, "space_name": "COMPSI 1401", "formal_name": "Computer Science Building - 1401", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 29, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 2460, "space_name": "COMPSI 1440", "formal_name": "Computer Science Building - 1440", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 35, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 821, "space_name": "COMPSI 2114", "formal_name": "Computer Science Building - 2114", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 30, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 822, "space_name": "COMPSI 2120", "formal_name": "Computer Science Building - 2120", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 80, "assign_perm": "X", "schedule_perm": "F"},
+    {"space_id": 823, "space_name": "COMPSI 2129", "formal_name": "Computer Science Building - 2129", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 48, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 824, "space_name": "COMPSI 2205", "formal_name": "Computer Science Building - 2205", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 40, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 825, "space_name": "COMPSI 2206", "formal_name": "Computer Science Building - 2206", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 12, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 826, "space_name": "COMPSI 2311", "formal_name": "Computer Science Building - 2311", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 62, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 828, "space_name": "COMPSI 2314", "formal_name": "Computer Science Building - 2314", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 19, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 2895, "space_name": "COMPSI 2321", "formal_name": "Computer Science Building - 2321", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 19, "assign_perm": "R", "schedule_perm": "F"},
+    {"space_id": 2883, "space_name": "COMPSI 2401", "formal_name": "Computer Science Building - 2401 (Grad School Conference Room)", "building_id": 17, "building_name": "Building - Computer Science Building", "max_capacity": 20, "assign_perm": "R", "schedule_perm": "F"}
+  ]
+}
