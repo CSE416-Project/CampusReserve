@@ -4,21 +4,23 @@ import Pill from '../components/Pill.jsx';
 import Feature from '../components/Feature.jsx';
 import RoomPhoto from '../components/RoomPhoto.jsx';
 
-export default function FindSpace({ onView, onBook }) {
+export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = false }) {
+  const buildings = useMemo(()=> rooms===ROOMS ? BUILDINGS : [BUILDINGS[0], ...[...new Set(rooms.map(r=>r.building))].sort()],[rooms]);
+  const types = useMemo(()=> rooms===ROOMS ? TYPES : [TYPES[0], ...[...new Set(rooms.map(r=>r.type))].sort()],[rooms]);
   const [q,setQ]=useState(""); const [building,setBuilding]=useState(BUILDINGS[0]); const [type,setType]=useState(TYPES[0]);
   const [minCap,setMinCap]=useState(0);
   const [picked,setPicked]=useState([]); const [fq,setFq]=useState("");
   const toggle = f => setPicked(p => p.includes(f) ? p.filter(x=>x!==f) : [...p,f]);
   const shownFeatures = ALL_FEATURES.filter(f => f.toLowerCase().includes(fq.toLowerCase()));
 
-  const filtered = useMemo(()=>ROOMS.filter(r=>{
+  const filtered = useMemo(()=>rooms.filter(r=>{
     if (q && !`${r.name} ${r.building}`.toLowerCase().includes(q.toLowerCase())) return false;
     if (building!==BUILDINGS[0] && r.building!==building) return false;
     if (type!==TYPES[0] && r.type!==type) return false;
     if (minCap && r.cap < minCap) return false;
     if (!picked.every(f => r.features.includes(f))) return false;
     return true;
-  }),[q,building,type,minCap,picked]);
+  }),[rooms,q,building,type,minCap,picked]);
 
   return (
     <main style={{ maxWidth:1400, margin:"0 auto", padding:"26px 24px 60px" }}>
@@ -33,12 +35,12 @@ export default function FindSpace({ onView, onBook }) {
           <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Building</label>
           <select value={building} onChange={e=>setBuilding(e.target.value)} style={{ width:"100%", margin:"6px 0 14px",
             padding:"9px 11px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)" }}>
-            {BUILDINGS.map(o=><option key={o}>{o}</option>)}
+            {buildings.map(o=><option key={o}>{o}</option>)}
           </select>
           <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Space type</label>
           <select value={type} onChange={e=>setType(e.target.value)} style={{ width:"100%", margin:"6px 0 14px",
             padding:"9px 11px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)" }}>
-            {TYPES.map(o=><option key={o}>{o}</option>)}
+            {types.map(o=><option key={o}>{o}</option>)}
           </select>
           <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Minimum capacity</label>
           <input type="number" min="0" placeholder="e.g. 20" value={minCap===0?"":minCap}
@@ -68,7 +70,8 @@ export default function FindSpace({ onView, onBook }) {
         </aside>
 
         <div style={{ flex:1, minWidth:280, display:"grid", gap:14 }}>
-          {filtered.length===0 && <div style={{ textAlign:"center", padding:"50px 20px", color:"var(--ink-faint)",
+          {loading && <div style={{ textAlign:"center", padding:"30px", color:"var(--ink-faint)" }}>Loading spaces from 25Live…</div>}
+          {!loading && filtered.length===0 && <div style={{ textAlign:"center", padding:"50px 20px", color:"var(--ink-faint)",
             background:"var(--card)", borderRadius:14, border:"2px dashed var(--ink-faint)" }}>No spaces match those filters.</div>}
           {filtered.map(r => (
             <div key={r.id} onClick={()=>!r.closed && onView(r)} style={{ display:"flex", gap:18, flexWrap:"wrap", background:"var(--card)", border:"2px solid var(--ink)",
