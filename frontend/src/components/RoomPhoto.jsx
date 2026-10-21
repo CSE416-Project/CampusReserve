@@ -1,34 +1,69 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const API = import.meta.env.VITE_API_URL;
 const EXT = ["jpg", "png", "webp"];
-const EMOJI = { "Theater":"🎭", "Rehearsal space":"🎤", "Lecture hall":"🎓", "Lounge":"🛋️", "Meeting room":"📚" };
+const RETRY_DELAY_MS = 2000;
+// Shown for rooms with no photo. The file goes in frontend/public/sbulogo.png.
+const PLACEHOLDER_LOGO = "/sbulogo.png";
 
-// Tries public/rooms/<id>.jpg/.png/.webp, then the room's 25Live photo from the API,
-// then shows a placeholder.
+// A soft pulsing box shown while a photo loads (and during the retry wait).
+const PULSE_CSS = `@keyframes roomPhotoPulse { 0%,100% { opacity:.55 } 50% { opacity:1 } }
+@media (prefers-reduced-motion: reduce) { .room-photo-loading { animation:none !important } }`;
+
+// Shows the room's 25Live photo (retried once after 2 seconds, since the first fetch can be
+// slow), then public/rooms/<id>.jpg/.png/.webp, then the SBU logo with "No photo available".
+// Failed attempts are never shown, so there's no broken-image icon.
 export default function RoomPhoto({ room }) {
+  const isLive = /^\d+$/.test(String(room.id));
   const sources = [
+    ...(isLive ? [`${API}/rooms/${room.id}/photo`, `${API}/rooms/${room.id}/photo?retry=1`] : []),
     ...EXT.map(ext => `/rooms/${room.id}.${ext}`),
-    ...(/^\d+$/.test(room.id) ? [`${API}/rooms/${room.id}/photo`] : []),  // 25Live rooms only
   ];
   const [i, setI] = useState(0);
-  const box = { width:"100%", height:"100%", minHeight:150, borderRadius:10, border:"2px solid var(--ink)", overflow:"hidden",
-    background:"linear-gradient(135deg, #FFE9A6, #FFC9B8)", display:"grid", placeItems:"center" };
+  const [loaded, setLoaded] = useState(false);
+  const [logoOk, setLogoOk] = useState(true);  // false if sbulogo.png is missing
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);  // stop a pending retry if the card goes away
+
+  const next = () => {
+    setLoaded(false);
+    if (isLive && i === 0) timer.current = setTimeout(() => setI(1), RETRY_DELAY_MS);
+    else setI(i + 1);
+  };
 
   if (i >= sources.length) {
     return (
-      <div style={box} role="img" aria-label={`${room.name} layout photo coming soon`}>
-        <div style={{ textAlign:"center", padding:8 }}>
-          <div style={{ fontSize:34 }}>{EMOJI[room.room_type ?? room.type] || "🏫"}</div>
-          <div style={{ fontSize:13, fontWeight:700, color:"var(--ink-soft)" }}>Layout photo coming soon</div>
-        </div>
+      <div role="img" aria-label={`No photo available for ${room.name}`}
+        style={{ width:"100%", height:"100%", minHeight:150, borderRadius:10, border:"2px solid var(--ink)",
+          overflow:"hidden", background:"var(--paper)", display:"flex", flexDirection:"column",
+          alignItems:"center", justifyContent:"center", gap:8, padding:12 }}>
+        {logoOk && (
+          <img src={PLACEHOLDER_LOGO} alt="" onError={() => setLogoOk(false)}
+            style={{ maxWidth:"70%", maxHeight:80, objectFit:"contain", opacity:0.85 }} />
+        )}
+        <span style={{ fontSize:12.5, fontWeight:600, color:"var(--ink-faint)" }}>No photo available</span>
       </div>
     );
   }
   return (
-    <div style={box}>
+    <div style={{ position:"relative", width:"100%", height:"100%", minHeight:150, borderRadius:10,
+      border:"2px solid var(--ink)", overflow:"hidden", background:"var(--paper)" }}>
+      {!loaded && (
+        <>
+          <style>{PULSE_CSS}</style>
+          <div className="room-photo-loading" aria-hidden="true"
+            style={{ position:"absolute", inset:0, display:"grid", placeItems:"center",
+              background:"linear-gradient(135deg, var(--paper), var(--card))",
+              animation:"roomPhotoPulse 1.4s ease-in-out infinite",
+              fontSize:13, fontWeight:600, color:"var(--ink-faint)" }}>
+            Loading photo…
+          </div>
+        </>
+      )}
       <img key={sources[i]} src={sources[i]} alt={`${room.name} layout`} loading="lazy"
-        onError={() => setI(i + 1)} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
+        onLoad={() => setLoaded(true)} onError={next}
+        style={{ width:"100%", height:"100%", objectFit:"cover", display:"block",
+          visibility: loaded ? "visible" : "hidden" }} />
     </div>
   );
 }
