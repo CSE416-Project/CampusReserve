@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ROOMS, THREADS, FORUM_POSTS, PROFILES, CLUBS, getDays } from './data/mock.js';
+import { ROOMS, THREADS, FORUM_POSTS, PROFILES, CLUBS, PEOPLE, getDays } from './data/mock.js';
 import Header from './components/Header.jsx';
 import FindSpace from './pages/FindSpace.jsx';
 import RoomDetail from './pages/RoomDetail.jsx';
@@ -21,7 +21,6 @@ import * as api from './api.js';
 
 const D = getDays(3);
 const HOME = { leader:"find", admin:"approvals", venue:"rooms" };
-const SELF_ORG = { leader:"Robotics Club", admin:"Student Affairs", venue:"Venue Host" };
 
 export default function App() {
   const [authView,setAuthView]=useState("login"); // "login" | "signup" | null once signed in
@@ -116,7 +115,9 @@ export default function App() {
   const loadLive = async (r, user) => {
     setRequests([]); setRoomsLoading(true); setApiError("");
     setMemberships([]); setVerifs([]); setMemLoaded(r !== "leader"); loadClubs();
-    setProfiles(p => ({ ...p, [r]: { ...p[r], name:user.name, email:user.email } }));
+    setProfiles(p => ({ ...p, [r]: { ...p[r], id:user.id, name:user.name, email:user.email } }));
+    setThreads([]); setPosts([]); loadConvos();
+    if (r !== "venue") { setPostsLoading(true); loadForum().then(() => setPostsLoading(false)); }
     let roomList = [];
     try { roomList = (await api.rooms()).map(api.adaptRoom); setRooms(roomList); }
     catch (e) { setApiError(e.message); }
@@ -152,43 +153,96 @@ export default function App() {
     setRequests(r => r.map(req => req.id===id ? { ...req, status, reason } : req));
   };
 
-  const [threads,setThreads]=useState(THREADS);
-  const [activeThread,setActiveThread]=useState(null);
-  const selfName = SELF_ORG[role];
-  const sendMessage = (threadId,text) => {
-    setThreads(ts => ts.map(t => t.id===threadId
-      ? { ...t, messages:[...t.messages, { from:selfName, text, time:"Just now" }] } : t));
-  };
-  const startChat = (contact) => {
-    const existing = threads.find(t => t.participants.includes(selfName) && t.participants.includes(contact));
-    if (existing) { setActiveThread(existing.id); return; }
-    const id = Date.now();
-    setThreads(ts => [...ts, { id, participants:[selfName,contact], subject:"New conversation", messages:[] }]);
-    setActiveThread(id);
+  const cancelRequest = async (id) => {
+    if (api.LIVE) {
+      try { await api.cancelRequest(id); setApiError(""); }
+      catch (e) { setApiError(e.message); throw e; }
+      await loadRequests(role, rooms);
+      return;
+    }
+    setRequests(r => r.map(req => req.id===id ? { ...req, status:"cancelled", reason:"" } : req));
   };
 
-  // unread = messages from the other person that this identity hasn't opened yet
-  const [seen,setSeen]=useState({});
-  const myThreads = threads.filter(t => t.participants.includes(selfName));
+  // ---- messages: conversations between people ----
+  const [threads,setThreads]=useState(THREADS);
+  const [activeThread,setActiveThread]=useState(null);
+  const selfName = profiles[role].name;
+  const selfId = profiles[role].id || profiles[role].email;
+
+  const loadConvos = async () => {
+    try { setThreads((await api.conversations()).map(api.adaptConversation)); } catch (e) { setApiError(e.message); }
+  };
+  const searchPeople = (q) => api.LIVE
+    ? api.searchUsers(q).then(l => l.map(u => ({ id:u.id, name:u.name, sub:u.email })))
+    : Promise.resolve(PEOPLE.filter(p => p.name.toLowerCase().includes(q.toLowerCase())));
+  const sendMessage = async (threadId,text) => {
+    if (api.LIVE) {
+      try { await api.sendMessage(threadId, text); await loadConvos(); setApiError(""); } catch (e) { setApiError(e.message); }
+      return;
+    }
+    setThreads(ts => ts.map(t => t.id===threadId
+      ? { ...t, messages:[...t.messages, { id:Date.now(), fromId:selfId, from:selfName, text, time:"Just now" }] } : t));
+  };
+  const startChat = async (person) => {
+    if (person.id === selfId) return;
+    const existing = threads.find(t => t.participants.length===2 && t.participants.some(p => p.id===person.id) && t.participants.some(p => p.id===selfId));
+    if (existing) { setActiveThread(existing.id); return; }
+    if (api.LIVE) {
+      try {
+        const c = api.adaptConversation(await api.createConversation([person.id]));
+        setThreads(ts => ts.some(t => t.id===c.id) ? ts : [...ts, c]);
+        setActiveThread(c.id); setApiError("");
+      } catch (e) { setApiError(e.message); }
+      return;
+    }
+    const id = Date.now();
+    setThreads(ts => [...ts, { id, participants:[{ id:selfId, name:selfName },{ id:person.id, name:person.name }], subject:"", messages:[] }]);
+    setActiveThread(id);
+  };
+  // live: keep conversations fresh while logged in
+  useEffect(() => {
+    if (!api.LIVE || authView) return;
+    const t = setInterval(loadConvos, 12000);
+    return () => clearInterval(t);
+  }, [authView, role]);
+
+  // unread = messages from other people that this user hasn't opened yet (counts remembered per user in this browser)
+  const [seen,setSeen]=useState(() => { try { return JSON.parse(localStorage.getItem("cr_seen") || "{}"); } catch { return {}; } });
+  useEffect(() => { try { localStorage.setItem("cr_seen", JSON.stringify(seen)); } catch { /* ignore */ } }, [seen]);
+  const myThreads = threads.filter(t => t.participants.some(p => p.id===selfId));
   const unreadMap = Object.fromEntries(myThreads.map(t => {
-    const n = seen[`${selfName}|${t.id}`] ?? 0;
-    return [t.id, t.messages.slice(n).filter(m => m.from !== selfName).length];
+    const n = seen[`${selfId}|${t.id}`] ?? 0;
+    return [t.id, t.messages.slice(n).filter(m => m.fromId !== selfId).length];
   }));
   const unreadTotal = Object.values(unreadMap).reduce((x,y)=>x+y, 0);
   useEffect(() => {
     if (authView || page!=="messages" || activeThread==null) return;
     const t = myThreads.find(x => x.id===activeThread);
-    const key = `${selfName}|${activeThread}`;
+    const key = `${selfId}|${activeThread}`;
     if (t && seen[key] !== t.messages.length) setSeen(s => ({ ...s, [key]: t.messages.length }));
   });
 
+  // ---- forum ----
   const [posts,setPosts]=useState(FORUM_POSTS);
-  const addPost = (title,body) => setPosts(ps => [{ id:ps.length+1, org:selfName, title, body, replies:[] }, ...ps]);
-  const addReply = (postId,text) => setPosts(ps => ps.map(p => p.id===postId ? { ...p, replies:[...p.replies, { org:selfName, text }] } : p));
+  const [postsLoading,setPostsLoading]=useState(false);
+  const loadForum = async () => {
+    try { setPosts((await api.forumPosts()).map(api.adaptPost)); } catch (e) { setApiError(e.message); }
+  };
+  const addPost = async ({ title, body, category, org }) => {
+    if (api.LIVE) {
+      await api.createPost({ title, body, category, organization_id: orgIds[org] || null });
+      await loadForum(); return;
+    }
+    setPosts(ps => [{ id:Date.now(), author:selfName, org, category, title, body, replies:[] }, ...ps]);
+  };
+  const addReply = async (postId, text, org) => {
+    if (api.LIVE) { await api.createReply(postId, { body:text, organization_id: orgIds[org] || null }); await loadForum(); return; }
+    setPosts(ps => ps.map(p => p.id===postId ? { ...p, replies:[...p.replies, { author:selfName, org, text }] } : p));
+  };
 
   const changeRole = (r, defaultPage) => { setRole(r); setPage(defaultPage); setViewingRoom(null); setViewingClub(null); setActiveThread(null); };
   const openClub = (name) => { setViewingRoom(null); setViewingClub(name); };
-  const messageClub = (name) => { startChat(name); setViewingClub(null); setPage("messages"); };
+  const messagePerson = (person) => { startChat(person); setViewingClub(null); setPage("messages"); };
 
   const signIn = (r, user) => { changeRole(r, HOME[r]); setAuthView(null); if (api.LIVE && user) loadLive(r, user); };
 
@@ -210,24 +264,24 @@ export default function App() {
       )}
 
       {viewingClub ? (
-        <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfOrg={profiles[role].org} onBack={()=>setViewingClub(null)} onMessage={messageClub} />
+        <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfId={selfId} onBack={()=>setViewingClub(null)} onMessagePerson={messagePerson} />
       ) : viewingRoom ? (
         <RoomDetail room={viewingRoom} onBack={()=>setViewingRoom(null)} onBook={setOpenRoom} />
       ) : (
         <>
           {role==="leader" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={setViewingRoom} onBook={setOpenRoom} />}
-          {role==="leader" && page==="requests" && <MyRequests clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
+          {role==="leader" && page==="requests" && <MyRequests onCancel={cancelRequest} clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
           {role==="admin" && page==="approvals" && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
           {role==="admin" && page==="verifications" && <Verifications items={verifs} onApprove={approveVerif} onReject={rejectVerif} onOpenClub={openClub} />}
-          {role==="admin" && page==="rooms" && <RoomsAdmin />}
+          {role==="admin" && page==="rooms" && <RoomsAdmin rooms={rooms} requests={requests} loading={roomsLoading} />}
           {role==="venue" && page==="rooms" && <VenueRooms requests={requests} onOpenClub={openClub} />}
-          {(role==="leader" || role==="admin") && page==="forum" && <Forum posts={posts} onPost={addPost} onReply={addReply} onOpenClub={openClub} />}
+          {(role==="leader" || role==="admin") && page==="forum" && <Forum posts={posts} onPost={addPost} onReply={addReply} clubs={role==="leader" ? leaderOrgs : []} loading={postsLoading} onOpenClub={openClub} />}
           {page==="clubs" && <Clubs clubs={clubs} loading={clubsLoading} onOpenClub={openClub} />}
           {page==="profile" && <Profile key={role} role={role} profile={profiles[role]} onOpenClub={openClub}
             onSave={patch=>setProfiles(p=>({ ...p, [role]:{ ...p[role], ...patch } }))}
             memberships={memberships} membershipsLoaded={memLoaded} onSearchOrgs={searchOrgOptions} onJoin={joinOrg} />}
           {page==="messages" && <Messages threads={threads} onSend={sendMessage} onStartChat={startChat}
-            activeId={activeThread} setActiveId={setActiveThread} selfName={selfName} unreadMap={unreadMap} />}
+            activeId={activeThread} setActiveId={setActiveThread} selfId={selfId} onSearchPeople={searchPeople} unreadMap={unreadMap} />}
         </>
       )}
 

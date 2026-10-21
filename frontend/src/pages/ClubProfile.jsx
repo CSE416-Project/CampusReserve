@@ -3,14 +3,14 @@ import { orgDetail } from '../api.js';
 import Avatar from '../components/Avatar.jsx';
 import Pill from '../components/Pill.jsx';
 
-export default function ClubProfile({ name, clubs, requests, selfOrg, onBack, onMessage }) {
+export default function ClubProfile({ name, clubs, requests, selfId, onBack, onMessagePerson }) {
   const club = clubs.find(c => c.name === name);
   const [members,setMembers]=useState(null); // live: verified e-board members, or null when the server hides them
   useEffect(()=>{
     setMembers(null);
     if (!club?.live) return;
     let off=false;
-    orgDetail(club.id).then(d=>{ if(!off && d.members) setMembers(d.members.filter(m=>m.verified).map(m=>({ name:m.user_name, title:m.position_title || "E-board member", email:m.user_email }))); }).catch(()=>{});
+    orgDetail(club.id).then(d=>{ if(!off && d.members) setMembers(d.members.filter(m=>m.verified).map(m=>({ name:m.user_name, title:m.position_title || "E-board member", email:m.user_email, id:m.user_id }))); }).catch(()=>{});
     return ()=>{ off=true; };
   },[club?.id]);
   if (!club) return null;
@@ -26,10 +26,6 @@ export default function ClubProfile({ name, clubs, requests, selfOrg, onBack, on
           <h1 style={{ fontSize:28, fontWeight:800 }}>{club.name}</h1>
           {club.category && <div style={{ fontSize:15, color:"var(--ink-faint)" }}>{club.category}</div>}
         </div>
-        {club.name !== selfOrg && (
-          <button onClick={()=>onMessage(club.name)} style={{ padding:"11px 20px", borderRadius:10, fontSize:15, fontWeight:700,
-            color:"var(--link)", background:"var(--blue-wash)" }}>Message club</button>
-        )}
       </div>
 
       <div style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>About</div>
@@ -52,6 +48,10 @@ export default function ClubProfile({ name, clubs, requests, selfOrg, onBack, on
               <div style={{ fontWeight:700, fontSize:15.5 }}>{m.name}</div>
               <div style={{ fontSize:14, color:"var(--ink-soft)" }}>{m.title}</div>
               <div style={{ fontSize:13, color:"var(--ink-faint)" }}>{m.email}</div>
+              {m.email !== selfId && m.id !== selfId && (
+                <button onClick={()=>onMessagePerson({ id: m.id || m.email, name: m.name, sub: m.title })} style={{ display:"block", marginTop:8, padding:"6px 14px", borderRadius:8,
+                  fontSize:13.5, fontWeight:700, color:"var(--ink)", border:"2px solid var(--ink)", background:"var(--blue-wash)" }}>Message</button>
+              )}
               {!club.live && <span style={{ display:"inline-block", marginTop:6, fontSize:12, fontWeight:600, padding:"3px 9px", borderRadius:999,
                 background: m.holder ? "var(--blue-wash)" : "var(--slate-wash)", color: m.holder ? "var(--link)" : "var(--ink-soft)" }}>
                 {m.holder ? "Account holder" : "Email notifications only"}</span>}
