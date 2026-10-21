@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ROOMS, THREADS, FORUM_POSTS, PROFILES, CLUBS, PEOPLE, getDays } from './data/mock.js';
-import Header from './components/Header.jsx';
+import Header, { NAV } from './components/Header.jsx';
+import { useRoute, enc, dec } from './router.js';
 import FindSpace from './pages/FindSpace.jsx';
 import RoomDetail from './pages/RoomDetail.jsx';
 import BookingDrawer from './pages/BookingDrawer.jsx';
@@ -23,11 +24,13 @@ const D = getDays(3);
 const HOME = { leader:"find", admin:"approvals", venue:"rooms" };
 
 export default function App() {
-  const [authView,setAuthView]=useState("login"); // "login" | "signup" | null once signed in
+  const { path, navigate, back } = useRoute();
+  const [signedIn,setSignedIn]=useState(false);
+  // live mode: if a saved token exists, ask the server who it belongs to before showing anything
+  const [booting,setBooting]=useState(() => api.LIVE && api.hasToken());
+  const [bootError,setBootError]=useState("");
+  const afterLogin=useRef(null); // deep link the user wanted before being sent to /login
   const [role,setRole]=useState("leader");
-  const [page,setPage]=useState("find");
-  const [viewingRoom,setViewingRoom]=useState(null);
-  const [viewingClub,setViewingClub]=useState(null);
   const [profiles,setProfiles]=useState(PROFILES);
   const [openRoom,setOpenRoom]=useState(null);
 
@@ -236,12 +239,6 @@ export default function App() {
     setThreads(ts => [...ts, { id, participants:[{ id:selfId, name:selfName },{ id:person.id, name:person.name }], subject:"", messages:[] }]);
     setActiveThread(id);
   };
-  // live: keep conversations fresh while logged in
-  useEffect(() => {
-    if (!api.LIVE || authView) return;
-    const t = setInterval(loadConvos, 12000);
-    return () => clearInterval(t);
-  }, [authView, role]);
 
   // unread = messages from other people that this user hasn't opened yet (counts remembered per user in this browser)
   const [seen,setSeen]=useState(() => { try { return JSON.parse(localStorage.getItem("cr_seen") || "{}"); } catch { return {}; } });
@@ -252,8 +249,32 @@ export default function App() {
     return [t.id, t.messages.slice(n).filter(m => m.fromId !== selfId).length];
   }));
   const unreadTotal = Object.values(unreadMap).reduce((x,y)=>x+y, 0);
+
+  // ---- routing: the URL is the source of truth for which page is showing ----
+  const seg = path.split("/").filter(Boolean).map(dec);
+  const authView = seg[0]==="login" ? "login" : seg[0]==="signup" ? "signup" : null;
+  const page = seg[0] || "";
+  const viewingClub = seg[0]==="clubs" && seg[1] ? seg[1] : null;
+  const viewingRoomId = seg[0]==="find" && seg[1]==="rooms" && seg[2] ? seg[2] : null;
+  const viewingRoom = viewingRoomId!=null ? rooms.find(r => String(r.id)===viewingRoomId) : null;
+
+    // live: keep conversations fresh (fast on the Messages page, slower elsewhere, and on tab focus)
+  const onMessages = page === "messages";
   useEffect(() => {
-    if (authView || page!=="messages" || activeThread==null) return;
+    if (!api.LIVE || !signedIn) return;
+    const refresh = () => { if (!document.hidden) loadConvos(); };
+    const t = setInterval(refresh, onMessages ? 3000 : 12000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [signedIn, role, onMessages]);
+  
+  useEffect(() => {
+    if (!signedIn || page!=="messages" || activeThread==null) return;
     const t = myThreads.find(x => x.id===activeThread);
     const key = `${selfId}|${activeThread}`;
     if (t && seen[key] !== t.messages.length) setSeen(s => ({ ...s, [key]: t.messages.length }));
@@ -277,36 +298,79 @@ export default function App() {
     setPosts(ps => ps.map(p => p.id===postId ? { ...p, replies:[...p.replies, { author:selfName, org, text }] } : p));
   };
 
-  const changeRole = (r, defaultPage) => { setRole(r); setPage(defaultPage); setViewingRoom(null); setViewingClub(null); setActiveThread(null); };
-  const openClub = (name) => { setViewingRoom(null); setViewingClub(name); };
-  const messagePerson = (person) => { startChat(person); setViewingClub(null); setPage("messages"); };
+  const allowed = (r, p) => { const s0 = p.split("/").filter(Boolean)[0]; return s0==="profile" || NAV[r].some(([id]) => id===s0); };
+  const goPage = (p) => navigate("/"+p);
+  const openClub = (name) => navigate("/clubs/"+enc(name));
+  const openRoomDetail = (room) => navigate("/find/rooms/"+enc(room.id));
+  const messagePerson = (person) => { startChat(person); navigate("/messages"); };
 
-  const signIn = (r, user) => { changeRole(r, HOME[r]); setAuthView(null); if (api.LIVE && user) loadLive(r, user); };
+  // Entering the app after login/signup or after restoring a saved session.
+  const enter = (r, user, { restored=false } = {}) => {
+    setRole(r); setActiveThread(null); setSignedIn(true);
+    const want = restored ? window.location.pathname : afterLogin.current;
+    afterLogin.current = null;
+    if (!want || !allowed(r, want)) navigate("/"+HOME[r], { replace:true });
+    else if (!restored) navigate(want, { replace:true });
+    if (api.LIVE && user) loadLive(r, user);
+  };
+  const signIn = (r, user) => enter(r, user);
+  const logout = () => { setOpenRoom(null); api.setToken(null); setSignedIn(false); navigate("/login"); };
 
-  if (authView==="login") return <Login onLogin={signIn} onSignup={()=>setAuthView("signup")} />;
-  if (authView==="signup") return <CreateAccount onCreate={signIn} onLogin={()=>setAuthView("login")} />;
+  // Restore the session on page load (refresh, new tab, shared link).
+  const restore = () => {
+    setBooting(true); setBootError("");
+    api.me()
+      .then(u => enter(api.ROLE_FROM_SERVER[u.role] || "leader", u, { restored:true }))
+      .catch(e => { if (api.hasToken()) setBootError(e.message); }) // token still set => server problem, not an expired login
+      .finally(() => setBooting(false));
+  };
+  useEffect(() => { if (booting) restore(); }, []); // eslint-disable-line
+
+  // Route guards: signed-out users go to /login; signed-in users can't sit on /login or a page their role doesn't have.
+  useEffect(() => {
+    if (booting || bootError) return;
+    if (!signedIn) {
+      if (!authView) { afterLogin.current = path==="/" ? null : path; navigate("/login", { replace:true }); }
+    } else if (authView || path==="/" || !allowed(role, path)) {
+      navigate("/"+HOME[role], { replace:true });
+    }
+  }, [booting, bootError, signedIn, path, role]); // eslint-disable-line
+
+  if (booting) return <div role="status" style={{ minHeight:"100vh", display:"grid", placeItems:"center", fontWeight:600, color:"var(--ink-soft)" }}>Loading…</div>;
+  if (bootError) return (
+    <div role="alert" style={{ minHeight:"100vh", display:"grid", placeItems:"center", textAlign:"center", padding:24 }}>
+      <div><p style={{ fontWeight:600, color:"var(--red)" }}>{bootError}</p>
+        <button onClick={restore} style={{ padding:"10px 18px", borderRadius:10, border:"2px solid var(--ink)", fontWeight:700 }}>Try again</button></div>
+    </div>);
+  if (!signedIn && authView==="signup") return <CreateAccount onCreate={signIn} onLogin={()=>navigate("/login")} />;
+  if (!signedIn) return <Login onLogin={signIn} onSignup={()=>navigate("/signup")} />;
+  if (authView) return null; // redirecting away from /login
 
   return (
     <div>
-      <Header role={role} page={page} setPage={p=>{ setPage(p); setViewingRoom(null); setViewingClub(null); }}
-        onProfile={()=>{ setPage("profile"); setViewingRoom(null); setViewingClub(null); }} unread={unreadTotal} verifCount={verifs.length} name={profiles[role].name} onLogout={()=>{ setOpenRoom(null); api.setToken(null); setAuthView("login"); }} />
+      <Header role={role} page={page} setPage={goPage}
+        onProfile={()=>goPage("profile")} unread={unreadTotal} verifCount={verifs.length} name={profiles[role].name} onLogout={logout} />
       {apiError && <div role="alert" style={{ maxWidth:900, margin:"14px auto 0", padding:"10px 16px", background:"var(--red-wash)", color:"var(--red)", border:"2px solid var(--red)", borderRadius:10, fontWeight:600, fontSize:14.5 }}>{apiError}</div>}
 
       {role==="leader" && memLoaded && leaderOrgs.length===0 && page!=="profile" && (
         <div role="status" style={{ maxWidth:900, margin:"14px auto 0", padding:"10px 16px", background:"var(--amber-wash)", border:"2px solid var(--amber)",
           borderRadius:10, fontWeight:600, fontSize:14.5, color:"var(--ink)", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
           <span style={{ flex:1, minWidth:200 }}>Your account is not verified yet, so you can't request bookings.</span>
-          <button onClick={()=>{ setPage("profile"); setViewingRoom(null); setViewingClub(null); }} style={{ padding:"6px 12px", borderRadius:8, border:"2px solid var(--ink)", color:"var(--ink)", background:"var(--card)", fontWeight:700, fontSize:14 }}>Add your club</button>
+          <button onClick={()=>goPage("profile")} style={{ padding:"6px 12px", borderRadius:8, border:"2px solid var(--ink)", color:"var(--ink)", background:"var(--card)", fontWeight:700, fontSize:14 }}>Add your club</button>
         </div>
       )}
 
       {viewingClub ? (
-        <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfId={selfId} onBack={()=>setViewingClub(null)} onMessagePerson={messagePerson} />
-      ) : viewingRoom ? (
-        <RoomDetail room={viewingRoom} onBack={()=>setViewingRoom(null)} onBook={setOpenRoom} />
+        <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfId={selfId} onBack={()=>back("/clubs")} onMessagePerson={messagePerson} />
+      ) : viewingRoomId!=null ? (
+        viewingRoom
+          ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={setOpenRoom} />
+          : <main style={{ maxWidth:900, margin:"0 auto", padding:"24px", fontWeight:600 }}>
+              {roomsLoading ? "Loading room…" : <>Room not found. <button onClick={()=>navigate("/find")} style={{ color:"var(--link)", fontWeight:700 }}>Back to search</button></>}
+            </main>
       ) : (
         <>
-          {role==="leader" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={setViewingRoom} onBook={setOpenRoom} />}
+          {role==="leader" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} onBook={setOpenRoom} />}
           {role==="leader" && page==="requests" && <MyRequests onCancel={cancelRequest} clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
           {role==="admin" && page==="approvals" && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
           {role==="admin" && page==="verifications" && <Verifications items={verifs} onApprove={approveVerif} onReject={rejectVerif} onOpenClub={openClub} />}
