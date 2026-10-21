@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { slotState } from '../data/mock.js';
 import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf } from '../api.js';
 import Pill from '../components/Pill.jsx';
+import WaitlistOffer from '../components/WaitlistOffer.jsx';
 
 const MIN = 360, MAX = 1410, STEP = 15; // bookable window: 6:00 AM to 11:30 PM
 const DOW = ["S","M","T","W","T","F","S"];
@@ -16,7 +17,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const timeBox = { padding:"9px 10px", fontSize:15.5, fontWeight:600, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", color:"var(--ink)" };
 const navBtn = { width:34, height:34, borderRadius:8, border:"2px solid var(--ink)", color:"var(--ink)", background:"var(--card)", fontWeight:700, fontSize:16 };
 
-export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
+export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist, waitlistLine = [], orgs = [] }) {
   const todayKey = dayKeyOf(new Date());
   const now = new Date();
   const [month, setMonth] = useState({ y: now.getFullYear(), m: now.getMonth() });
@@ -27,6 +28,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [wlMsg, setWlMsg] = useState("");
   const [error, setError] = useState("");
   const [live, setLive] = useState({});                // live busy intervals by day key
   const loaded = useRef(new Set());
@@ -73,7 +75,8 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
 
   const sorted = [...dates].sort();
   const rangeOk = end > start;
-  const conflicts = sorted.filter(k => overlaps(k).booked.length);
+  // a conflict = another club's booking OR request overlaps the chosen date + time
+  const conflicts = sorted.filter(k => { const o = overlaps(k); return o.booked.length > 0 || o.requested.length > 0; });
   const needOrg = orgs.length > 1 && !org;
   const bookingOrg = orgs.length > 1 ? org : orgs[0];
   const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg;
@@ -100,6 +103,19 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
       setDates(failed.map(f => f.pick.key)); setConfirming(false);
       setError(failed.map(f => `${f.pick.label}: ${f.msg}`).join(" "));
     } catch (e) { setError(e.message || "Couldn't send the request."); setConfirming(false); }
+    finally { setBusy(false); }
+  };
+
+  const joinWl = async eventName => {
+    setBusy(true); setError(""); setWlMsg("");
+    try {
+      const picks = conflicts.map(k => ({ key: k, label: labelOf(k), start: toHHMM(start), end: toHHMM(end) }));
+      const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName)) || [];
+      const ok = picks.length - failed.length;
+      if (ok) setWlMsg(`✓ You're on the waitlist for ${ok} day${ok === 1 ? "" : "s"}.`);
+      setDates(ds => ds.filter(k => !conflicts.includes(k) || failed.some(f => f.pick.key === k)));
+      if (failed.length) setError(failed.map(f => `${f.pick.label}: ${f.msg}`).join(" "));
+    } catch (e) { setError(e.message || "Couldn't join the waitlist."); }
     finally { setBusy(false); }
   };
 
@@ -158,7 +174,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
                 {cells.map((k, i) => {
                   if (!k) return <div key={`e${i}`} />;
                   const past = k < todayKey, sel = dates.includes(k);
-                  const clash = sel && overlaps(k).booked.length > 0;
+                  const clash = sel && conflicts.includes(k);
                   return (
                     <button key={k} disabled={past} onClick={() => toggleDate(k)} aria-label={labelOf(k)} aria-pressed={sel}
                       style={{ height:40, borderRadius:8, fontSize:15, fontWeight:700,
@@ -208,14 +224,19 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
                         <span><b style={{ color:"var(--ink)" }}>{labelOf(k)}</b> · {fmt12(start)} – {fmt12(end)}</span>
                         <button onClick={() => toggleDate(k)} aria-label={`Remove ${labelOf(k)}`} style={{ fontSize:19, color:"var(--ink-faint)" }}>×</button>
                       </div>
-                      {o.booked.length > 0 && <div style={{ color:"var(--red)", fontWeight:600, fontSize:14 }}>
-                        Already booked {o.booked.map(([s, e]) => `${fmt12(s)}–${fmt12(e)}`).join(", ")}. Pick another time or day.</div>}
-                      {o.booked.length === 0 && o.requested.length > 0 && <div style={{ color:"var(--amber)", fontWeight:600, fontSize:14 }}>
-                        Another club has asked for this time. You can still request it.</div>}
+                      {(o.booked.length > 0 || o.requested.length > 0) && <div style={{ color:"var(--red)", fontWeight:600, fontSize:14 }}>
+                        Time conflict: {o.booked.length > 0
+                          ? `already booked ${o.booked.map(([s, e]) => `${fmt12(s)}–${fmt12(e)}`).join(", ")}`
+                          : "another club has already requested this time"}. Join the waitlist below, or pick another time or day.</div>}
                     </div>
                   );
                 })}
               </div>
+            )}
+
+            {wlMsg && <div style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
+            {conflicts.length > 0 && !needOrg && onJoinWaitlist && (
+              <WaitlistOffer roomName={room.name} days={conflicts} start={start} end={end} line={waitlistLine} busy={busy} onJoin={joinWl} />
             )}
           </div>
         </div>
@@ -238,7 +259,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
               background: canReview ? "var(--blue)" : "var(--line-soft)" }}>
               {needOrg ? "Choose a club to continue"
                 : sorted.length === 0 ? "Pick at least one day"
-                : conflicts.length ? "Fix the time conflict to continue"
+                : conflicts.length ? "Time conflict: join the waitlist or change the time"
                 : `Review ${sorted.length} request${sorted.length === 1 ? "" : "s"}`}
             </button>
           )}

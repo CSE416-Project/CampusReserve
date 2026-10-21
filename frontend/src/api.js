@@ -67,6 +67,10 @@ export const createRequest = body => call("/requests", { method: "POST", json: b
 export const approve = id => call(`/requests/${id}/approve`, { method: "POST", json: {} });
 export const deny = (id, reason) => call(`/requests/${id}/deny`, { method: "POST", json: { reason } });
 
+// ---- waitlist ---------------------------------------------------------
+export const roomWaitlist = id => call(`/waitlist/rooms/${encodeURIComponent(id)}`);
+export const leaveWaitlist = id => call(`/requests/${id}/waitlist`, { method: "DELETE" });
+
 // ---- adapters: server shapes -> the shapes the UI already uses ---------
 export const SLOTS = ["9:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00"];
 export const ROLE_FROM_SERVER = { club_leader: "leader", admin: "admin", venue_host: "venue" };
@@ -101,6 +105,7 @@ export function adaptRequest(r, roomsById = {}) {
 export function busyFromSchedule(items) {
   const out = {};
   for (const it of items) {
+    if (it.kind === "waitlist") continue;   // waitlist entries don't block a slot
     const start = new Date(it.start), end = new Date(it.end);
     const state = it.source === "25live" || it.status === "approved" || it.kind === "closed" ? "booked" : "requested";
     for (let d = new Date(start.getFullYear(), start.getMonth(), start.getDate()); d < end; d.setDate(d.getDate() + 1)) {

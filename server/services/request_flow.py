@@ -49,7 +49,8 @@ async def _live_bookings(space_id: str | None, window: Window) -> tuple[list[dic
 async def check_booking(db: Session, *, room: Room | None, space_id: str | None,
                         window: Window, attendance: int | None, is_admin: bool,
                         exclude_id=None, strict: bool = False,
-                        fallback_rules: RoomRules | None = None) -> CheckResult:
+                        fallback_rules: RoomRules | None = None,
+                        pending_blocks: bool = False) -> CheckResult:
     """Every rule for one booking. `strict`: if 25Live can't be reached,
     block (used when approving) instead of just warning (submitting)."""
     if room is not None:
@@ -71,6 +72,7 @@ async def check_booking(db: Session, *, room: Room | None, space_id: str | None,
         pending_overlaps=found["pending"],
         attendance=attendance,
         is_admin=is_admin,
+        pending_blocks=pending_blocks,
     )
     if live_error:
         result.problems.append(Problem(
