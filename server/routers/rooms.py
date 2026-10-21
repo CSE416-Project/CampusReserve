@@ -40,10 +40,6 @@ from services.room_merge import (
     to_local_naive,
     window_from_parts,
 )
-from collections import OrderedDict
-
-_photos: OrderedDict[str, tuple[bytes, str] | None] = OrderedDict()  # None = "no photo"
-_PHOTO_CACHE_SIZE = 300
 
 logger = logging.getLogger(__name__)
 
@@ -627,26 +623,23 @@ async def rooms_map(
 
 
 @router.get("/{room_id}/photo")
-async def room_photo(room_id: str):
+async def room_photo(
+    room_id: str,
+):
     """The room's layout photo from 25Live, served through our API, so the
     frontend can use it directly: <img src="/rooms/1810/photo">."""
     if not room_id.isdigit():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo for this room.")
-    if room_id not in _photos:
-        try:
-            detail = await live25.get_space_detail(room_id)
-            photo_id = (detail or {}).get("layout_photo_id")
-            _photos[room_id] = await live25.get_image(photo_id) if photo_id else None
-        except live25.Live25Error as e:
+    try:
+        detail = await live25.get_space_detail(room_id)
+        photo_id = (detail or {}).get("layout_photo_id")
+        if not photo_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail=f"Couldn't load the photo from 25Live: {e}")
-        if len(_photos) > _PHOTO_CACHE_SIZE:
-            _photos.popitem(last=False)  # drop the oldest
-    _photos.move_to_end(room_id)
-    if _photos[room_id] is None:
+                                detail="This room has no photo in 25Live.")
+        content, media_type = await live25.get_image(photo_id)
+    except live25.Live25Error as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="This room has no photo in 25Live.")
-    content, media_type = _photos[room_id]
+                            detail=f"Couldn't load the photo from 25Live: {e}")
     return Response(content=content, media_type=media_type,
                     headers={"Cache-Control": "public, max-age=86400"})
 
