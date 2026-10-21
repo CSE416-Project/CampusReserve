@@ -3,6 +3,7 @@
 import enum
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
     Column,
@@ -23,6 +24,9 @@ from sqlalchemy.dialects.postgresql import ARRAY, ExcludeConstraint, TSTZRANGE, 
 from sqlalchemy.orm import relationship
 
 from .base import Base
+
+# All booking times are naive campus-local time, matching 25Live.
+CAMPUS_TZ = ZoneInfo("America/New_York")
 
 
 class RequestStatus(str, enum.Enum):
@@ -283,4 +287,11 @@ def _fill_blocked_during(mapper, connection, target: Request) -> None:
     """
     lower = target.setup_start or target.start_time
     upper = target.cleanup_end or target.end_time
+    # FIXED: times are stored as naive campus-local time (same as 25Live), but
+    # blocked_during is a TSTZRANGE. Without a timezone, Postgres would read
+    # them in the server's own timezone, which can shift the range by hours.
+    if lower.tzinfo is None:
+        lower = lower.replace(tzinfo=CAMPUS_TZ)
+    if upper.tzinfo is None:
+        upper = upper.replace(tzinfo=CAMPUS_TZ)
     target.blocked_during = f"[{lower.isoformat()},{upper.isoformat()})"
