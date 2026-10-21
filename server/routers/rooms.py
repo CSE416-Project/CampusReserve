@@ -625,7 +625,6 @@ async def rooms_map(
 @router.get("/{room_id}/photo")
 async def room_photo(
     room_id: str,
-    current_user: User = Security(get_current_user, scopes=["read:rooms"]),
 ):
     """The room's layout photo from 25Live, served through our API, so the
     frontend can use it directly: <img src="/rooms/1810/photo">."""
