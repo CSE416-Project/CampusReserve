@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
-import { SB_ENGAGED_URL, CLUBS } from '../data/mock.js';
+import { SB_ENGAGED_URL } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
 
-export default function MyRequests({ requests, showOrg = false }) {
+export default function MyRequests({ requests, showOrg = false, clubs = [] }) {
   const [status,setStatus]=useState("All"); const [q,setQ]=useState("");
   const buildings = ["All buildings", ...new Set(requests.map(r=>r.room.building))];
   const [building,setBuilding]=useState("All buildings");
@@ -53,7 +53,7 @@ export default function MyRequests({ requests, showOrg = false }) {
                   Approved — <a href={SB_ENGAGED_URL} target="_blank" rel="noreferrer" style={{ color:"var(--link)", fontWeight:600 }}>
                     complete your SB Engaged event form</a> within <b>48 hours</b> to confirm this booking.
                   <div style={{ marginTop:4, color:"var(--ink-faint)", fontSize:13.5 }}>
-                    Email confirmation sent to your e-board ({CLUBS.find(c=>c.name===req.org)?.eboard.length ?? 1} people).
+                    Email confirmation sent to your e-board ({clubs.find(c=>c.name===req.org)?.count || 1} {(clubs.find(c=>c.name===req.org)?.count || 1) === 1 ? "person" : "people"}).
                   </div>
                 </div>
               )}

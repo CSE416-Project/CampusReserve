@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { CLUBS } from '../data/mock.js';
+import { useState, useEffect } from 'react';
 import Avatar from '../components/Avatar.jsx';
 
 const ROLE_LABEL = { leader:"Club leader", admin:"Administrator", venue:"Venue host" };
@@ -9,12 +8,29 @@ const label = { fontSize:14, fontWeight:600, color:"var(--ink-soft)", display:"b
 const card = { background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, padding:"24px 26px", boxShadow:"var(--shadow)", marginBottom:22 };
 const primary = { padding:"11px 22px", borderRadius:10, fontSize:15, fontWeight:700, color:"var(--ink)", background:"var(--blue)" };
 
-export default function Profile({ role, profile, onSave, onOpenClub }) {
+export default function Profile({ role, profile, onSave, onOpenClub, memberships = [], membershipsLoaded = true, onSearchOrgs, onJoin }) {
   const [name,setName]=useState(profile.name); const [bio,setBio]=useState(profile.bio); const [saved,setSaved]=useState(false);
   const [cur,setCur]=useState(""); const [next,setNext]=useState(""); const [confirm,setConfirm]=useState(""); const [pwMsg,setPwMsg]=useState(null);
 
-  // every club whose e-board lists this person's email
-  const memberships = CLUBS.flatMap(c => c.eboard.filter(m => m.email === profile.email).map(m => ({ club:c.name, title:m.title })));
+  // add-a-club form
+  const [q,setQ]=useState(""); const [results,setResults]=useState([]); const [chosen,setChosen]=useState(null);
+  const [position,setPosition]=useState(""); const [joinMsg,setJoinMsg]=useState(null); const [joining,setJoining]=useState(false);
+  const taken = new Set(memberships.map(m => m.name));
+  useEffect(()=>{
+    if (!onSearchOrgs || chosen || !q.trim()) { setResults([]); return; }
+    let off=false;
+    const t=setTimeout(()=>{ onSearchOrgs(q.trim()).then(r=>{ if(!off) setResults(r.filter(o=>!taken.has(o.name)).slice(0,6)); }).catch(()=>{ if(!off) setResults([]); }); },200);
+    return ()=>{ off=true; clearTimeout(t); };
+  },[q,chosen,memberships.length]);
+  const sendRequest = async () => {
+    if (!chosen) return setJoinMsg({ ok:false, text:"Search for your club or organization and pick it from the list." });
+    if (!position.trim()) return setJoinMsg({ ok:false, text:"Enter your position, for example President." });
+    setJoining(true); setJoinMsg(null);
+    try { await onJoin(chosen, position.trim()); setJoinMsg({ ok:true, text:`✓ Request sent. An admin will verify you for ${chosen.name}.` }); setChosen(null); setQ(""); setPosition(""); }
+    catch (e) { setJoinMsg({ ok:false, text:e.message }); }
+    setJoining(false);
+  };
+  const verifiedCount = memberships.filter(m=>m.verified).length;
 
   const updatePassword = () => {
     if (!cur) return setPwMsg({ ok:false, text:"Enter your current password." });
@@ -29,7 +45,7 @@ export default function Profile({ role, profile, onSave, onOpenClub }) {
 
       <div style={card}>
         <div style={{ display:"flex", gap:16, alignItems:"center", marginBottom:6 }}>
-          <Avatar name={name || "?"} size={64} />
+          <Avatar person name={name || "?"} size={64} />
           <div>
             <div style={{ fontSize:20, fontWeight:800 }}>{name}</div>
             <div style={{ fontSize:14.5, color:"var(--ink-soft)" }}>{ROLE_LABEL[role]} · {profile.title}</div>
@@ -50,22 +66,60 @@ export default function Profile({ role, profile, onSave, onOpenClub }) {
         </div>
       </div>
 
-      {memberships.length > 0 && (
+      {role==="leader" && (
         <div style={card}>
           <div style={{ fontSize:18, fontWeight:700, marginBottom:4 }}>My organizations ({memberships.length})</div>
-          <div style={{ fontSize:14.5, color:"var(--ink-soft)", marginBottom:14 }}>You can book spaces for any club you're an e-board member of.</div>
+          <div style={{ fontSize:14.5, color:"var(--ink-soft)", marginBottom:14 }}>You can book spaces only for clubs where an admin has verified you as an e-board member.</div>
+          {membershipsLoaded && verifiedCount===0 && (
+            <div role="status" style={{ background:"var(--amber-wash)", border:"2px solid var(--amber)", borderRadius:10, padding:"12px 14px",
+              fontSize:14.5, fontWeight:600, color:"var(--ink)", marginBottom:14 }}>
+              Your account is not verified yet. Add your club below. You can request bookings once an admin verifies you.
+            </div>
+          )}
           <div style={{ display:"grid", gap:10 }}>
             {memberships.map(m => (
-              <button key={m.club} onClick={()=>onOpenClub(m.club)} style={{ display:"flex", alignItems:"center", gap:12, textAlign:"left",
-                border:"2px solid var(--ink)", borderRadius:10, padding:"12px 14px", background:"var(--paper)" }}>
-                <Avatar name={m.club} size={40} />
-                <span style={{ flex:1 }}>
-                  <span style={{ display:"block", fontWeight:700, fontSize:15.5 }}>{m.club}</span>
-                  <span style={{ display:"block", fontSize:13.5, color:"var(--ink-soft)" }}>{m.title}</span>
+              <div key={m.name} style={{ display:"flex", alignItems:"center", gap:12, border:"2px solid var(--ink)", borderRadius:10, padding:"12px 14px", background:"var(--paper)", flexWrap:"wrap" }}>
+                <Avatar name={m.name} size={40} />
+                <span style={{ flex:1, minWidth:140 }}>
+                  <button onClick={()=>onOpenClub(m.name)} style={{ display:"block", fontWeight:700, fontSize:15.5, textAlign:"left", color:"var(--ink)" }}>{m.name}</button>
+                  <span style={{ display:"block", fontSize:13.5, color:"var(--ink-soft)" }}>{m.position || "Position not set"}</span>
                 </span>
-                <span style={{ fontSize:14, fontWeight:600, color:"var(--link)" }}>View ›</span>
-              </button>
+                <span style={{ fontSize:13.5, fontWeight:700, padding:"4px 11px", borderRadius:999, border:"1.5px solid currentColor",
+                  color: m.verified ? "var(--green)" : "var(--amber)", background: m.verified ? "var(--green-wash)" : "var(--amber-wash)" }}>
+                  {m.verified ? "Verified" : "Not verified · waiting for admin"}
+                </span>
+              </div>
             ))}
+            {!membershipsLoaded && <div style={{ fontSize:14.5, color:"var(--ink-faint)" }}>Loading your organizations…</div>}
+            {membershipsLoaded && memberships.length===0 && <div style={{ fontSize:14.5, color:"var(--ink-faint)" }}>You haven't added any clubs yet.</div>}
+          </div>
+
+          <div style={{ borderTop:"1px solid var(--line)", marginTop:20, paddingTop:16 }}>
+            <div style={{ fontSize:16, fontWeight:700 }}>Add an organization</div>
+            <label style={label}>Club or organization
+              <div style={{ position:"relative" }}>
+                <input id="org-search" value={chosen ? chosen.name : q} onChange={e=>{ setChosen(null); setQ(e.target.value); setJoinMsg(null); }}
+                  placeholder="Search by name" style={field} autoComplete="off" />
+                {chosen && <button onClick={()=>{ setChosen(null); setQ(""); }} aria-label="Clear club" style={{ position:"absolute", right:10, top:16, width:26, height:26,
+                  borderRadius:999, background:"var(--line-soft)", color:"var(--ink)", fontWeight:700 }}>×</button>}
+                {results.length>0 && (
+                  <div style={{ position:"absolute", left:0, right:0, top:"100%", marginTop:4, background:"var(--card)", border:"2px solid var(--ink)",
+                    borderRadius:8, boxShadow:"var(--shadow-lift)", zIndex:5, overflow:"hidden" }}>
+                    {results.map(o => (
+                      <button key={o.name} onClick={()=>{ setChosen(o); setResults([]); }} style={{ display:"block", width:"100%", textAlign:"left",
+                        padding:"10px 12px", fontSize:14.5, color:"var(--ink)", borderBottom:"1px solid var(--line-soft)" }}>{o.name}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </label>
+            <label style={label}>Your position
+              <input id="org-position" value={position} onChange={e=>{ setPosition(e.target.value); setJoinMsg(null); }} placeholder="e.g. President, Treasurer" style={field} />
+            </label>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:18, flexWrap:"wrap" }}>
+              <button onClick={sendRequest} disabled={joining} style={primary}>{joining ? "Sending…" : "Send verification request"}</button>
+              {joinMsg && <span role="status" style={{ fontSize:14.5, fontWeight:600, color: joinMsg.ok ? "var(--green)" : "var(--red)" }}>{joinMsg.text}</span>}
+            </div>
           </div>
         </div>
       )}
