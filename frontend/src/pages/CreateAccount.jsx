@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { LIVE, register, login, ROLE_FROM_SERVER } from '../api.js';
 import AuthShell, { authInput, authLabel } from '../components/AuthShell.jsx';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 export default function CreateAccount({ onCreate, onLogin }) {
   const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
@@ -31,10 +32,10 @@ export default function CreateAccount({ onCreate, onLogin }) {
           <input type="email" value={form.email} onChange={set("email")} placeholder="firstname.lastname@stonybrook.edu" style={authInput} />
         </label>
         <label style={authLabel}>Password
-          <input type="password" value={form.password} onChange={set("password")} placeholder="Create a password" style={authInput} />
+          <PasswordInput value={form.password} onChange={set("password")} placeholder="Create a password" style={authInput} />
         </label>
         <label style={authLabel}>Confirm password
-          <input type="password" value={form.confirm} onChange={set("confirm")} placeholder="Re-enter your password" style={authInput} />
+          <PasswordInput value={form.confirm} onChange={set("confirm")} placeholder="Re-enter your password" style={authInput} />
         </label>
         {error && <div role="alert" style={{ color:"var(--red)", fontSize:14.5, fontWeight:600, marginTop:14 }}>{error}</div>}
         <button type="submit" disabled={busy} style={{ width:"100%", marginTop:22, padding:"14px", borderRadius:10, fontSize:16, fontWeight:700,
