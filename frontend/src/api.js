@@ -65,6 +65,7 @@ export const myRequests = () => call("/requests/mine");
 export const adminRequests = status => call(`/admin/requests?status=${status}&limit=200`).then(items => items.map(i => i.request));
 export const createRequest = body => call("/requests", { method: "POST", json: body });
 export const approve = id => call(`/requests/${id}/approve`, { method: "POST", json: {} });
+export const cancelRequest = id => call(`/requests/${id}/cancel`, { method: "POST", json: {} });
 export const deny = (id, reason) => call(`/requests/${id}/deny`, { method: "POST", json: { reason } });
 
 // ---- waitlist ---------------------------------------------------------
@@ -95,9 +96,9 @@ export const dayKeyOf = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.
 export function adaptRequest(r, roomsById = {}) {
   const s = new Date(r.start_time);
   const room = roomsById[r.room_id] || { id: r.room_id, name: r.room_name || "Room", building: "" };
-  const status = r.status === "waitlisted" ? "pending" : (r.status === "cancelled" ? "denied" : r.status);
+  const status = r.status === "waitlisted" ? "pending" : r.status;
   return { id: r.id, room, org: r.organization_name || "", date: `${DOW[s.getDay()]}, ${MON[s.getMonth()]} ${s.getDate()}`,
-    time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason || (r.status === "cancelled" ? "Cancelled" : ""),
+    time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason,
     event: r.event_name };
 }
 
@@ -138,3 +139,37 @@ export const verifyMember = (orgId, userId, position) =>
   call(`/admin/organizations/${orgId}/members/${userId}/verify`, { method: "POST", json: { position_title: position || null } });
 export const rejectMember = (orgId, userId) =>
   call(`/admin/organizations/${orgId}/members/${userId}`, { method: "DELETE" });
+
+// ---- messages + forum -----------------------------------------------------
+// Expected server contract (built from models/communication.py). Change only this section if the real routes differ.
+//   GET  /users/search?q=            -> [{ id, name, email }]
+//   GET  /conversations              -> [{ id, title, participants:[{id,name}], messages:[{id,sender_id,sender_name,body,created_at}] }]
+//   POST /conversations              {participant_ids:[...], title?} -> a conversation (existing 1:1 if there is one)
+//   POST /conversations/{id}/messages {body} -> a message
+//   GET  /forum                      -> [{ id, title, body, category, author_id, author_name, organization_id, organization_name,
+//                                          created_at, replies:[{id, body, author_id, author_name, organization_name, created_at}] }]
+//   POST /forum                      {title, body, category, organization_id?} -> a post
+//   POST /forum/{id}/replies         {body, organization_id?} -> a reply
+export const searchUsers = q => call("/users/search?q=" + encodeURIComponent(q));
+export const conversations = () => call("/conversations");
+export const createConversation = (participantIds, title) =>
+  call("/conversations", { method: "POST", json: { participant_ids: participantIds, title: title || null } });
+export const sendMessage = (id, body) => call(`/conversations/${id}/messages`, { method: "POST", json: { body } });
+export const forumPosts = () => call("/forum");
+export const createPost = body => call("/forum", { method: "POST", json: body });
+export const createReply = (id, body) => call(`/forum/${id}/replies`, { method: "POST", json: body });
+
+function fmtTime(iso) {
+  const d = new Date(iso), now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+export const adaptConversation = c => ({
+  id: c.id, subject: c.title || "",
+  participants: (c.participants || []).map(p => ({ id: p.id, name: p.name })),
+  messages: (c.messages || []).map(m => ({ id: m.id, fromId: m.sender_id, from: m.sender_name || "Former user", text: m.body, time: fmtTime(m.created_at) })),
+});
+export const adaptPost = p => ({
+  id: p.id, author: p.author_name || "Former user", org: p.organization_name || "", category: p.category || "general", title: p.title || "", body: p.body,
+  replies: (p.replies || []).map(r => ({ author: r.author_name || "Former user", org: r.organization_name || "", text: r.body })),
+});
