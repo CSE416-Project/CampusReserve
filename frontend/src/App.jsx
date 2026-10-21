@@ -153,6 +153,43 @@ export default function App() {
     setRequests(r => r.map(req => req.id===id ? { ...req, status, reason } : req));
   };
 
+  // ---- waitlist (live server only) ----
+  const [waitlistLine,setWaitlistLine]=useState([]);
+  const [wlLoading,setWlLoading]=useState(false);
+  const [mockWl,setMockWl]=useState({});   // waitlist lines when running without the live server
+  const wlRoom = openRoom;   // waitlist is only used inside the booking popup
+  const loadWaitlist = async room => {
+    if (!api.LIVE || !room) { setWaitlistLine([]); return; }
+    setWlLoading(true);
+    try { setWaitlistLine(await api.roomWaitlist(room.id)); } catch (e) { setApiError(e.message); }
+    setWlLoading(false);
+  };
+  useEffect(() => { setWaitlistLine([]); loadWaitlist(wlRoom); }, [wlRoom?.id]);
+
+  // returns the picks that failed, same contract as submitRequest
+  const joinWaitlist = async (room,picks,org,eventName) => {
+    if (!api.LIVE) {
+      setMockWl(m => {
+        const cur = m[room.id] || [];
+        const add = picks.map((p,i) => ({ position: cur.filter(e => e.start.startsWith(p.key)).length + 1,
+          start:`${p.key}T${p.start}:00`, end:`${p.key}T${p.end}:00`, is_yours:true, request_id:`mock-${Date.now()}-${i}` }));
+        return { ...m, [room.id]:[...cur, ...add] };
+      });
+      setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending" }))]);
+      return [];
+    }
+    const orgId = orgIds[org];
+    if (!orgId) throw new Error("You aren't verified for a club yet.");
+    const failed = [];
+    for (const p of picks) {
+      try { await api.createRequest({ ...api.requestBody(room, orgId, p, eventName), join_waitlist_if_taken:true }); }
+      catch (e) { failed.push({ pick:p, msg:e.message }); }
+    }
+    await loadWaitlist(room);
+    await loadRequests(role, rooms);
+    return failed;
+  };
+
   const cancelRequest = async (id) => {
     if (api.LIVE) {
       try { await api.cancelRequest(id); setApiError(""); }
@@ -285,7 +322,8 @@ export default function App() {
         </>
       )}
 
-      {openRoom && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={leaderOrgs} />}
+      {openRoom && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={leaderOrgs}
+        onJoinWaitlist={joinWaitlist} waitlistLine={api.LIVE ? waitlistLine : (mockWl[openRoom?.id] || [])} />}
     </div>
   );
 }
