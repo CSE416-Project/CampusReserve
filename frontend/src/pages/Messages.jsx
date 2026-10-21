@@ -1,17 +1,23 @@
 import { useState, useEffect } from 'react';
-import { CONTACTS } from '../data/mock.js';
 
-export default function Messages({ threads, onSend, onStartChat, activeId, setActiveId, selfName, unreadMap = {} }) {
-  const mine = threads.filter(t => t.participants.includes(selfName));
-  useEffect(() => { if (activeId==null && mine[0]) setActiveId(mine[0].id); }, [selfName]);
+export default function Messages({ threads, onSend, onStartChat, activeId, setActiveId, selfId, onSearchPeople, unreadMap = {} }) {
+  const mine = threads.filter(t => t.participants.some(p => p.id === selfId));
+  useEffect(() => { if (activeId==null && mine[0]) setActiveId(mine[0].id); }, [selfId, mine.length]);
   const [draft,setDraft]=useState("");
   const [search,setSearch]=useState("");
   const active = mine.find(t=>t.id===activeId);
-  const other = t => t.participants.find(p => p !== selfName);
+  const other = t => t.participants.find(p => p.id !== selfId)?.name || "Former user";
 
-  const results = search.trim()
-    ? CONTACTS.filter(c => c !== selfName && c.toLowerCase().includes(search.toLowerCase()))
-    : [];
+  // search people (not clubs) to start a chat with
+  const [results,setResults]=useState([]); const [searchErr,setSearchErr]=useState("");
+  useEffect(()=>{
+    if (!search.trim()) { setResults([]); setSearchErr(""); return; }
+    let off=false;
+    const t=setTimeout(()=>{ onSearchPeople(search.trim())
+      .then(r=>{ if(!off){ setResults(r.filter(c=>c.id!==selfId).slice(0,8)); setSearchErr(""); } })
+      .catch(e=>{ if(!off){ setResults([]); setSearchErr(e.message); } }); },200);
+    return ()=>{ off=true; clearTimeout(t); };
+  },[search]);
 
   return (
     <main style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
@@ -19,15 +25,23 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
       <div style={{ display:"flex", gap:18, alignItems:"flex-start", flexWrap:"wrap" }}>
         <div style={{ width:270, flexShrink:0, background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, overflow:"hidden" }}>
           <div style={{ padding:12, borderBottom:"1px solid var(--line)", position:"relative" }}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search people to message…"
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search people by name…"
               style={{ width:"100%", padding:"8px 11px", fontSize:14, border:"2px solid var(--ink)", borderRadius:8,
               background:"var(--paper)", outline:"none" }} />
+            {searchErr && <div style={{ fontSize:13, color:"var(--red)", marginTop:6 }}>{searchErr}</div>}
+            {search.trim() && !searchErr && results.length===0 && (
+              <div style={{ position:"absolute", left:12, right:12, top:52, background:"var(--card)", border:"2px solid var(--ink)", borderRadius:8,
+                padding:"9px 12px", fontSize:14, color:"var(--ink-faint)", zIndex:5 }}>No people found</div>
+            )}
             {results.length>0 && (
               <div style={{ position:"absolute", left:12, right:12, top:52, background:"var(--card)", border:"2px solid var(--ink)",
                 borderRadius:8, boxShadow:"var(--shadow-lift)", zIndex:5, overflow:"hidden" }}>
                 {results.map(c => (
-                  <button key={c} onClick={()=>{ onStartChat(c); setSearch(""); }} style={{ display:"block", width:"100%",
-                    textAlign:"left", padding:"9px 12px", fontSize:14, borderBottom:"1px solid var(--line-soft)" }}>{c}</button>
+                  <button key={c.id} onClick={()=>{ onStartChat(c); setSearch(""); }} style={{ display:"block", width:"100%",
+                    textAlign:"left", padding:"9px 12px", fontSize:14, color:"var(--ink)", borderBottom:"1px solid var(--line-soft)" }}>
+                    <span style={{ display:"block", fontWeight:600 }}>{c.name}</span>
+                    {(c.sub || c.email) && <span style={{ display:"block", fontSize:12.5, color:"var(--ink-faint)" }}>{c.sub || c.email}</span>}
+                  </button>
                 ))}
               </div>
             )}
@@ -43,7 +57,7 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
                 {unreadMap[t.id]>0 && <span style={{ minWidth:20, height:20, padding:"0 6px", borderRadius:999, background:"var(--red-wash)", color:"var(--red)",
                   fontSize:12, fontWeight:700, display:"grid", placeItems:"center" }}>{unreadMap[t.id]}</span>}
               </div>
-              <div style={{ fontSize:13, color:"var(--ink-faint)", marginTop:2 }}>{t.subject}</div>
+              {t.subject && <div style={{ fontSize:13, color:"var(--ink-faint)", marginTop:2 }}>{t.subject}</div>}
             </button>
           ))}
         </div>
@@ -54,14 +68,14 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
           ) : (
             <>
               <div style={{ padding:"14px 18px", borderBottom:"1px solid var(--line)", fontWeight:700, fontSize:15 }}>
-                {other(active)} <span style={{ fontWeight:500, color:"var(--ink-faint)", fontSize:13 }}>· {active.subject}</span>
+                {other(active)}{active.subject && <span style={{ fontWeight:500, color:"var(--ink-faint)", fontSize:13 }}> · {active.subject}</span>}
               </div>
               <div style={{ flex:1, padding:18, overflowY:"auto", display:"flex", flexDirection:"column", gap:10 }}>
                 {active.messages.length===0 && <div style={{ margin:"auto", color:"var(--ink-faint)", fontSize:14 }}>Say hello to start the conversation.</div>}
                 {active.messages.map((m,i) => {
-                  const mine2 = m.from===selfName;
+                  const mine2 = m.fromId===selfId;
                   return (
-                    <div key={i} style={{ maxWidth:"75%", alignSelf: mine2?"flex-end":"flex-start" }}>
+                    <div key={m.id ?? i} style={{ maxWidth:"75%", alignSelf: mine2?"flex-end":"flex-start" }}>
                       <div style={{ fontSize:12, color:"var(--ink-faint)", marginBottom:3, textAlign: mine2?"right":"left" }}>{m.from} · {m.time}</div>
                       <div style={{ padding:"9px 13px", borderRadius:10, fontSize:14.5,
                         background: mine2?"var(--blue-wash)":"var(--line-soft)", color:"var(--ink)" }}>{m.text}</div>

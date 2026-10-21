@@ -2,10 +2,12 @@ import { useState, useMemo } from 'react';
 import { SB_ENGAGED_URL } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
 
-export default function MyRequests({ requests, showOrg = false, clubs = [] }) {
+export default function MyRequests({ requests, showOrg = false, clubs = [], onCancel }) {
   const [status,setStatus]=useState("All"); const [q,setQ]=useState("");
   const buildings = ["All buildings", ...new Set(requests.map(r=>r.room.building))];
   const [building,setBuilding]=useState("All buildings");
+  const [asking,setAsking]=useState(null); const [busy,setBusy]=useState(null);
+  const cancel = async id => { setBusy(id); try { await onCancel(id); } catch { /* error banner is shown by the app */ } setBusy(null); setAsking(null); };
 
   const filtered = useMemo(()=>requests.filter(r=>{
     if (status!=="All" && r.status!==status) return false;
@@ -23,7 +25,7 @@ export default function MyRequests({ requests, showOrg = false, clubs = [] }) {
           style={{ flex:"1 1 200px", padding:"9px 12px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", outline:"none" }} />
         <select value={status} onChange={e=>setStatus(e.target.value)} style={{ padding:"9px 12px", fontSize:14.5,
           border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)" }}>
-          {["All","pending","approved","denied"].map(s=><option key={s}>{s}</option>)}
+          {["All","pending","approved","denied","cancelled"].map(s=><option key={s}>{s}</option>)}
         </select>
         <select value={building} onChange={e=>setBuilding(e.target.value)} style={{ padding:"9px 12px", fontSize:14.5,
           border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)" }}>
@@ -47,6 +49,20 @@ export default function MyRequests({ requests, showOrg = false, clubs = [] }) {
                 </div>
                 <Pill status={req.status} />
               </div>
+              {req.status!=="denied" && req.status!=="cancelled" && onCancel && (
+                <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                  {asking===req.id ? (<>
+                    <span style={{ fontSize:14, fontWeight:600 }}>Cancel this request?</span>
+                    <button disabled={busy===req.id} onClick={()=>cancel(req.id)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
+                      border:"2px solid var(--ink)", borderRadius:8, background:"var(--red)", color:"#fff", cursor:"pointer" }}>{busy===req.id ? "Cancelling…" : "Yes, cancel it"}</button>
+                    <button disabled={busy===req.id} onClick={()=>setAsking(null)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
+                      border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", color:"var(--ink)", cursor:"pointer" }}>Keep it</button>
+                  </>) : (
+                    <button onClick={()=>setAsking(req.id)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
+                      border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", color:"var(--ink)", cursor:"pointer" }}>Cancel request</button>
+                  )}
+                </div>
+              )}
               {req.status==="approved" && (
                 <div style={{ marginTop:12, background:"var(--green-wash)", borderRadius:10, padding:"11px 14px",
                   fontSize:14, color:"var(--ink-soft)" }}>
