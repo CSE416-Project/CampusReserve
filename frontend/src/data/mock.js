@@ -203,6 +203,7 @@ export function roomNotes(room) { return ROOM_NOTES[room.id] || ROOM_NOTES.defau
 
 const EVENT_ORGS = ["Dance Collective","Media Club","K-Pop Dance Crew","Debate Society","Tech Club","A Cappella Group"];
 export function upcomingEvents(room) {
+  if (room.live) return [];
   const days = getDays(6);
   const out = [];
   days.forEach((d, i) => {

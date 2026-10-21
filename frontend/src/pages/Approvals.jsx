@@ -1,9 +1,8 @@
 import OrgLink from '../components/OrgLink.jsx';
 import { useState } from 'react';
-import { CLUBS } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
 
-export default function Approvals({ requests, onDecide, onOpenClub }) {
+export default function Approvals({ requests, onDecide, onOpenClub, clubs = [] }) {
   const [tab,setTab]=useState("pending");
   const [notice,setNotice]=useState(null);
   const [denying,setDenying]=useState(null); const [reason,setReason]=useState("");
@@ -56,7 +55,7 @@ export default function Approvals({ requests, onDecide, onOpenClub }) {
                 </div>
               ) : (
                 <div style={{ display:"flex", gap:8, marginTop:12 }}>
-                  <button onClick={()=>{ onDecide(req.id,"approved"); const n = CLUBS.find(c=>c.name===req.org)?.eboard.length ?? 1; setNotice(`Approved ${req.room.name} for ${req.org}. Email sent to ${n} e-board member${n===1?"":"s"}.`); }} style={{ padding:"8px 16px", borderRadius:8,
+                  <button onClick={()=>{ onDecide(req.id,"approved"); const n = clubs.find(c=>c.name===req.org)?.count || 1; setNotice(`Approved ${req.room.name} for ${req.org}. Email sent to ${n} e-board member${n===1?"":"s"}.`); }} style={{ padding:"8px 16px", borderRadius:8,
                     fontSize:14, fontWeight:600, color:"var(--ink)", background:"var(--mint)" }}>Approve</button>
                   <button onClick={()=>setDenying(req.id)} style={{ padding:"8px 16px", borderRadius:8,
                     fontSize:14, fontWeight:600, color:"var(--red)", background:"var(--red-wash)" }}>Deny</button>

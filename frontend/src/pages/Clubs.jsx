@@ -1,14 +1,22 @@
 import { useState } from 'react';
-import { CLUBS } from '../data/mock.js';
 import Avatar from '../components/Avatar.jsx';
 
-const CATEGORIES = [...new Set(CLUBS.map(c => c.category))].sort();
+const STOP = new Set(["with","that","this","from","your","their","them","they","have","will","club","clubs","about","other","into","more","than","also","open","each","where","which","stony","brook","university","students","student","members","member"]);
+const words = c => [...new Set(`${c.name} ${c.bio || ""}`.toLowerCase().match(/[a-z]{4,}/g) || [])].filter(w => !STOP.has(w));
 
-export default function Clubs({ onOpenClub }) {
+export default function Clubs({ clubs, onOpenClub, loading = false }) {
+  const CATEGORIES = [...new Set(clubs.map(c => c.category).filter(Boolean))].sort();
   const [q,setQ]=useState(""); const [cats,setCats]=useState([]);
+  const [kws,setKws]=useState([]); const [kq,setKq]=useState("");
+  // keywords: words that appear in at least two clubs' names or descriptions, most common first
+  const keywordCounts = (() => { const m = {}; clubs.forEach(c => words(c).forEach(w => { m[w] = (m[w] || 0) + 1; }));
+    return Object.entries(m).filter(([,n]) => n >= 2).sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0])).slice(0, 60); })();
+  const shownKw = keywordCounts.filter(([w]) => w.includes(kq.toLowerCase().trim()));
+  const toggleKw = w => setKws(p => p.includes(w) ? p.filter(x => x !== w) : [...p, w]);
   const toggle = c => setCats(p => p.includes(c) ? p.filter(x => x !== c) : [...p, c]);
-  const list = CLUBS.filter(c => (cats.length === 0 || cats.includes(c.category))
-    && `${c.name} ${c.category} ${c.bio}`.toLowerCase().includes(q.toLowerCase()));
+  const list = clubs.filter(c => (cats.length === 0 || cats.includes(c.category))
+    && (kws.length === 0 || words(c).some(w => kws.includes(w)))
+    && `${c.name} ${c.category || ""} ${c.bio}`.toLowerCase().includes(q.toLowerCase()));
 
   return (
     <main style={{ maxWidth:1100, margin:"0 auto", padding:"26px 24px 60px" }}>
@@ -18,6 +26,27 @@ export default function Clubs({ onOpenClub }) {
           <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Search</label>
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Club name or keyword"
             style={{ width:"100%", margin:"6px 0 16px", padding:"9px 11px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:10, background:"var(--paper)", outline:"none" }} />
+          {keywordCounts.length > 0 && (
+            <div style={{ marginBottom:16 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:6 }}>
+                <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Keywords{kws.length > 0 && ` (${kws.length} selected)`}</label>
+                {kws.length > 0 && <button onClick={()=>setKws([])} style={{ fontSize:13, fontWeight:600, color:"var(--link)" }}>Clear</button>}
+              </div>
+              <input id="kw-search" value={kq} onChange={e=>setKq(e.target.value)} placeholder="Search keywords"
+                style={{ width:"100%", marginBottom:6, padding:"8px 11px", fontSize:14, border:"2px solid var(--ink)", borderRadius:10, background:"var(--paper)", outline:"none" }} />
+              <div style={{ maxHeight:260, overflowY:"auto", border:"2px solid var(--ink)", borderRadius:10, padding:"4px 10px", background:"var(--paper)" }}>
+                {shownKw.map(([w,n]) => (
+                  <label key={w} style={{ display:"flex", alignItems:"center", gap:9, padding:"5px 0", fontSize:14.5, cursor:"pointer" }}>
+                    <input type="checkbox" checked={kws.includes(w)} onChange={()=>toggleKw(w)} style={{ accentColor:"var(--ink)" }} />
+                    <span style={{ flex:1 }}>{w}</span><span style={{ fontSize:13, color:"var(--ink-faint)" }}>{n}</span>
+                  </label>
+                ))}
+                {shownKw.length === 0 && <div style={{ padding:"8px 0", fontSize:14, color:"var(--ink-faint)" }}>No matching keywords</div>}
+              </div>
+              <div style={{ fontSize:12.5, color:"var(--ink-faint)", marginTop:5 }}>Shows clubs that match any selected keyword.</div>
+            </div>
+          )}
+          {CATEGORIES.length > 0 && <>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:6 }}>
             <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Category{cats.length > 0 && ` (${cats.length})`}</label>
             {cats.length > 0 && <button onClick={()=>setCats([])} style={{ fontSize:13, fontWeight:600, color:"var(--link)" }}>Clear</button>}
@@ -26,9 +55,10 @@ export default function Clubs({ onOpenClub }) {
             <label key={c} style={{ display:"flex", alignItems:"center", gap:9, padding:"6px 0", fontSize:14.5, cursor:"pointer" }}>
               <input type="checkbox" checked={cats.includes(c)} onChange={()=>toggle(c)} style={{ accentColor:"var(--ink)" }} />
               <span style={{ flex:1 }}>{c}</span>
-              <span style={{ fontSize:13, color:"var(--ink-faint)" }}>{CLUBS.filter(x => x.category === c).length}</span>
+              <span style={{ fontSize:13, color:"var(--ink-faint)" }}>{clubs.filter(x => x.category === c).length}</span>
             </label>
           ))}
+          </>}
         </aside>
 
         <div style={{ flex:1, minWidth:280 }}>
@@ -41,13 +71,14 @@ export default function Clubs({ onOpenClub }) {
                   <Avatar name={c.name} />
                   <div>
                     <div style={{ fontWeight:700, fontSize:16 }}>{c.name}</div>
-                    <div style={{ fontSize:13.5, color:"var(--ink-faint)" }}>{c.category} · {c.eboard.length} e-board members</div>
+                    <div style={{ fontSize:13.5, color:"var(--ink-faint)" }}>{c.category ? `${c.category} · ` : ""}{c.count} e-board member{c.count === 1 ? "" : "s"}</div>
                   </div>
                 </div>
-                <div style={{ fontSize:14, color:"var(--ink-soft)" }}>{c.bio}</div>
+                <div style={{ fontSize:14, color:"var(--ink-soft)" }}>{c.bio || "No description yet."}</div>
               </button>
             ))}
-            {list.length === 0 && <div style={{ color:"var(--ink-faint)", fontSize:15 }}>No clubs match those filters.</div>}
+            {loading && <div style={{ color:"var(--ink-faint)", fontSize:15 }}>Loading clubs…</div>}
+            {!loading && list.length === 0 && <div style={{ color:"var(--ink-faint)", fontSize:15 }}>No clubs match those filters.</div>}
           </div>
         </div>
       </div>
