@@ -1,13 +1,64 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { roomNotes, upcomingEvents } from '../data/mock.js';
+import * as api from '../api.js';
 import Pill from '../components/Pill.jsx';
 import Feature from '../components/Feature.jsx';
+
+const SCHEDULE_DAYS = 30;  // the API returns at most 30 days at a time
+const EVENTS_PER_PAGE = 5;
+
+const fmtDate = d => d.toLocaleDateString(undefined, { weekday:"short", month:"short", day:"numeric" });
+const fmtTime = d => d.toLocaleTimeString(undefined, { hour:"numeric", minute:"2-digit" });
+
+// One schedule item from GET /rooms/{id}/schedule -> the shape this list shows.
+function adaptScheduleItem(it) {
+  const start = new Date(it.event_start || it.start), end = new Date(it.event_end || it.end);
+  const label =
+    it.kind === "closed" ? "Closed"
+    : it.kind === "waitlist" ? `Waitlist${it.waitlist_position ? ` #${it.waitlist_position}` : ""}`
+    : it.source === "25live" ? "Booked"
+    : it.status === "approved" ? "Approved"
+    : it.status === "pending" ? "Pending request"
+    : it.status || "";
+  return { title: it.name, label, date: fmtDate(start), time: `${fmtTime(start)}–${fmtTime(end)}`, start };
+}
 
 export default function RoomDetail({ room, onBack, onBook }) {
   const notes = roomNotes(room);
   const [comments, setComments] = useState(notes.comments);
   const [draft, setDraft] = useState("");
-  const events = upcomingEvents(room);
+
+  // Live rooms: this room's real schedule from the API. Mock rooms: the mock events.
+  const live = api.LIVE && room.live;
+  const [events, setEvents] = useState(live ? [] : upcomingEvents(room));
+  const [eventsLoading, setEventsLoading] = useState(live);
+  const [eventsError, setEventsError] = useState("");
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [events]);  // back to the first page when the list changes
+  const pageCount = Math.max(1, Math.ceil(events.length / EVENTS_PER_PAGE));
+  const current = Math.min(page, pageCount);
+  const shownEvents = events.slice((current - 1) * EVENTS_PER_PAGE, current * EVENTS_PER_PAGE);
+  const pageBtn = disabled => ({ padding:"6px 12px", borderRadius:8, fontSize:15, fontWeight:600, border:"2px solid var(--ink)",
+    color:"var(--ink)", background: disabled ? "var(--paper)" : "var(--blue)", opacity: disabled ? 0.5 : 1,
+    cursor: disabled ? "default" : "pointer" });
+
+  useEffect(() => {
+    if (!live) return;
+    let cancelled = false;
+    const today = new Date();
+    const last = new Date(today); last.setDate(today.getDate() + SCHEDULE_DAYS);
+    setEventsLoading(true); setEventsError("");
+    api.roomSchedule(room.id, api.dayKeyOf(today), api.dayKeyOf(last))
+      .then(items => {
+        if (cancelled) return;
+        const now = new Date();
+        setEvents(items.map(adaptScheduleItem).filter(e => e.start >= now || e.label === "Closed")
+          .sort((a, b) => a.start - b.start));
+      })
+      .catch(e => { if (!cancelled) setEventsError(e.message); })
+      .finally(() => { if (!cancelled) setEventsLoading(false); });
+    return () => { cancelled = true; };
+  }, [live, room.id]);
 
   return (
     <main style={{ maxWidth:1180, margin:"0 auto", padding:"28px 30px 70px" }}>
@@ -64,17 +115,35 @@ export default function RoomDetail({ room, onBack, onBook }) {
         </div>
 
         <div>
-          <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>Other events in this room</div>
+          <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>
+            Other events in this room{live && <span style={{ fontWeight:500, fontSize:15, color:"var(--ink-faint)" }}> · next {SCHEDULE_DAYS} days</span>}
+          </div>
           <div style={{ background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, overflow:"hidden" }}>
-            {events.length===0 ? (
+            {eventsLoading ? (
+              <div style={{ padding:16, fontSize:18, color:"var(--ink-faint)" }}>Loading this room's schedule…</div>
+            ) : eventsError ? (
+              <div role="alert" style={{ padding:16, fontSize:16, color:"var(--ink-soft)" }}>Couldn't load the schedule: {eventsError}</div>
+            ) : events.length===0 ? (
               <div style={{ padding:16, fontSize:18, color:"var(--ink-faint)" }}>No upcoming events scheduled.</div>
-            ) : events.map((e,i)=>(
-              <div key={i} style={{ padding:"12px 15px", borderBottom: i<events.length-1 ? "1px solid var(--line-soft)" : "none" }}>
-                <div style={{ fontWeight:700, fontSize:18 }}>{e.org}</div>
-                <div style={{ fontSize:16, color:"var(--ink-faint)" }}>{e.title} · {e.date} · {e.time}</div>
+            ) : shownEvents.map((e,i)=>(
+              <div key={i} style={{ padding:"12px 15px", borderBottom: i<shownEvents.length-1 ? "1px solid var(--line-soft)" : "none" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", gap:8 }}>
+                  <div style={{ fontWeight:700, fontSize:18 }}>{e.org || e.title}</div>
+                  {e.label && <span style={{ fontSize:14, fontWeight:600, color:"var(--ink-faint)", whiteSpace:"nowrap" }}>{e.label}</span>}
+                </div>
+                <div style={{ fontSize:16, color:"var(--ink-faint)" }}>{e.org ? `${e.title} · ` : ""}{e.date} · {e.time}</div>
               </div>
             ))}
           </div>
+          {!eventsLoading && !eventsError && pageCount > 1 && (
+            <nav aria-label="Event pages" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginTop:10 }}>
+              <button onClick={()=>setPage(current-1)} disabled={current===1} style={pageBtn(current===1)}>‹ Previous</button>
+              <span style={{ fontSize:15, fontWeight:600, color:"var(--ink-soft)" }} aria-current="page">
+                {(current-1)*EVENTS_PER_PAGE+1}–{Math.min(current*EVENTS_PER_PAGE, events.length)} of {events.length}
+              </span>
+              <button onClick={()=>setPage(current+1)} disabled={current===pageCount} style={pageBtn(current===pageCount)}>Next ›</button>
+            </nav>
+          )}
         </div>
       </div>
     </main>
