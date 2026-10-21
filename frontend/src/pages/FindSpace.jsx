@@ -1,22 +1,17 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { ROOMS, ALL_FEATURES, BUILDINGS, TYPES, STATUS } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
 import Feature from '../components/Feature.jsx';
 import RoomPhoto from '../components/RoomPhoto.jsx';
 
-const PAGE_SIZE = 10;
-
 export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = false }) {
   const buildings = useMemo(()=> rooms===ROOMS ? BUILDINGS : [BUILDINGS[0], ...[...new Set(rooms.map(r=>r.building))].sort()],[rooms]);
   const types = useMemo(()=> rooms===ROOMS ? TYPES : [TYPES[0], ...[...new Set(rooms.map(r=>r.type))].sort()],[rooms]);
-  // Live rooms have their own features (25Live names and our tags), not the mock list.
-  const allFeatures = useMemo(()=> rooms===ROOMS ? ALL_FEATURES : [...new Set(rooms.flatMap(r=>r.features))].sort(),[rooms]);
   const [q,setQ]=useState(""); const [building,setBuilding]=useState(BUILDINGS[0]); const [type,setType]=useState(TYPES[0]);
   const [minCap,setMinCap]=useState(0);
   const [picked,setPicked]=useState([]); const [fq,setFq]=useState("");
-  const [page,setPage]=useState(1);
   const toggle = f => setPicked(p => p.includes(f) ? p.filter(x=>x!==f) : [...p,f]);
-  const shownFeatures = allFeatures.filter(f => f.toLowerCase().includes(fq.toLowerCase()));
+  const shownFeatures = ALL_FEATURES.filter(f => f.toLowerCase().includes(fq.toLowerCase()));
 
   const filtered = useMemo(()=>rooms.filter(r=>{
     if (q && !`${r.name} ${r.building}`.toLowerCase().includes(q.toLowerCase())) return false;
@@ -26,16 +21,6 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
     if (!picked.every(f => r.features.includes(f))) return false;
     return true;
   }),[rooms,q,building,type,minCap,picked]);
-
-  // Back to page 1 whenever the filters (or the room list) change.
-  useEffect(() => setPage(1), [rooms,q,building,type,minCap,picked]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const current = Math.min(page, pageCount);
-  const shown = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
-  const goTo = p => { setPage(p); window.scrollTo({ top:0, behavior:"smooth" }); };
-  const pageBtn = disabled => ({ padding:"8px 14px", borderRadius:8, fontSize:14, fontWeight:600, border:"2px solid var(--ink)",
-    color:"var(--ink)", background: disabled ? "var(--paper)" : "var(--blue)", opacity: disabled ? 0.5 : 1,
-    cursor: disabled ? "default" : "pointer" });
 
   return (
     <main style={{ maxWidth:1400, margin:"0 auto", padding:"26px 24px 60px" }}>
@@ -88,12 +73,7 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
           {loading && <div style={{ textAlign:"center", padding:"30px", color:"var(--ink-faint)" }}>Loading spaces from 25Live…</div>}
           {!loading && filtered.length===0 && <div style={{ textAlign:"center", padding:"50px 20px", color:"var(--ink-faint)",
             background:"var(--card)", borderRadius:14, border:"2px dashed var(--ink-faint)" }}>No spaces match those filters.</div>}
-          {!loading && filtered.length>0 && (
-            <div style={{ fontSize:14, color:"var(--ink-faint)" }}>
-              Showing {(current-1)*PAGE_SIZE+1}–{Math.min(current*PAGE_SIZE, filtered.length)} of {filtered.length} spaces
-            </div>
-          )}
-          {shown.map(r => (
+          {filtered.map(r => (
             <div key={r.id} onClick={()=>!r.closed && onView(r)} style={{ display:"flex", gap:18, flexWrap:"wrap", background:"var(--card)", border:"2px solid var(--ink)",
               borderRadius:14, padding:18, boxShadow:"var(--shadow)", opacity:r.closed?0.65:1, cursor:r.closed?"default":"pointer",
               borderLeft:`4px solid ${STATUS[r.status].fg}` }}>
@@ -122,13 +102,6 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
               </div>
             </div>
           ))}
-          {pageCount > 1 && (
-            <nav aria-label="Room pages" style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:12, marginTop:6 }}>
-              <button onClick={()=>goTo(current-1)} disabled={current===1} style={pageBtn(current===1)}>‹ Previous</button>
-              <span style={{ fontSize:14, fontWeight:600 }} aria-current="page">Page {current} of {pageCount}</span>
-              <button onClick={()=>goTo(current+1)} disabled={current===pageCount} style={pageBtn(current===pageCount)}>Next ›</button>
-            </nav>
-          )}
         </div>
       </div>
     </main>

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { SB_ENGAGED_URL } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
+import ConfirmModal from '../components/ConfirmModal.jsx';
 
 export default function MyRequests({ requests, showOrg = false, clubs = [], onCancel }) {
   const [status,setStatus]=useState("All"); const [q,setQ]=useState("");
@@ -51,16 +52,8 @@ export default function MyRequests({ requests, showOrg = false, clubs = [], onCa
               </div>
               {req.status!=="denied" && req.status!=="cancelled" && onCancel && (
                 <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                  {asking===req.id ? (<>
-                    <span style={{ fontSize:14, fontWeight:600 }}>Cancel this request?</span>
-                    <button disabled={busy===req.id} onClick={()=>cancel(req.id)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
-                      border:"2px solid var(--ink)", borderRadius:8, background:"var(--red)", color:"#fff", cursor:"pointer" }}>{busy===req.id ? "Cancelling…" : "Yes, cancel it"}</button>
-                    <button disabled={busy===req.id} onClick={()=>setAsking(null)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
-                      border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", color:"var(--ink)", cursor:"pointer" }}>Keep it</button>
-                  </>) : (
-                    <button onClick={()=>setAsking(req.id)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
-                      border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", color:"var(--ink)", cursor:"pointer" }}>Cancel request</button>
-                  )}
+                  <button onClick={()=>setAsking(req.id)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
+                    border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", color:"var(--ink)", cursor:"pointer" }}>Cancel request</button>
                 </div>
               )}
               {req.status==="approved" && (
@@ -77,6 +70,18 @@ export default function MyRequests({ requests, showOrg = false, clubs = [], onCa
           ))}
         </div>
       )}
+      {asking && (() => { const r = requests.find(x => x.id===asking); return r && (
+        <ConfirmModal title="Cancel this request?" confirmLabel="Yes, cancel request" cancelLabel="Keep it" danger busy={busy===asking}
+          onConfirm={()=>cancel(asking)} onCancel={()=>setAsking(null)}>
+          <div style={{ marginBottom:10 }}>
+            {r.status==="approved" ? "This booking is already approved. Cancelling it frees the room for other clubs." : "Your request will be withdrawn."}
+          </div>
+          <div style={{ border:"2px solid var(--ink)", borderRadius:10, padding:"12px 14px", background:"var(--paper)", color:"var(--ink)" }}>
+            <div style={{ fontWeight:700, fontSize:16 }}>{r.room.name}</div>
+            <div style={{ fontSize:14, color:"var(--ink-faint)" }}>{r.date} · {r.time}</div>
+          </div>
+        </ConfirmModal>
+      ); })()}
     </main>
   );
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { slotState } from '../data/mock.js';
 import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf } from '../api.js';
 import Pill from '../components/Pill.jsx';
+import ConfirmModal from '../components/ConfirmModal.jsx';
 
 const MIN = 360, MAX = 1410, STEP = 15; // bookable window: 6:00 AM to 11:30 PM
 const DOW = ["S","M","T","W","T","F","S"];
@@ -119,21 +120,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
         <div style={{ padding:"18px 22px", overflowY:"auto", flex:1 }}>
           {error && <div role="alert" style={{ color:"var(--red)", fontWeight:600, fontSize:14.5, marginBottom:12 }}>{error}</div>}
 
-          {confirming && (
-            <div>
-              <div style={{ fontSize:22, fontWeight:700, marginBottom:6 }}>Confirm your request</div>
-              <div style={{ fontSize:15, color:"var(--ink-soft)", marginBottom:14 }}>Please check the details. Nothing is sent until you confirm.</div>
-              <div style={{ border:"2px solid var(--ink)", borderRadius:10, padding:"14px 16px", background:"var(--paper)" }}>
-                <div style={{ fontWeight:700, fontSize:17 }}>{room.name}</div>
-                <div style={{ fontSize:14, color:"var(--ink-faint)", marginBottom:8 }}>{room.building}</div>
-                {bookingOrg && <div style={{ fontSize:15, marginBottom:6 }}>Booking for: <b>{bookingOrg}</b></div>}
-                <div style={{ fontSize:15, marginBottom:6 }}>Time: <b>{fmt12(start)} – {fmt12(end)}</b></div>
-                {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}>{labelOf(k)}</div>)}
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: confirming ? "none" : "block" }}>
+          <div>
             {orgs.length > 1 && (
               <div style={{ marginBottom:18 }}>
                 <div style={{ fontSize:15.6, fontWeight:700, marginBottom:8 }}>Booking for which club?</div>
@@ -225,13 +212,6 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
             <div style={{ color:"var(--green)", fontWeight:600, fontSize:16.8, textAlign:"center" }}>
               ✓ {sorted.length} request{sorted.length === 1 ? "" : "s"} sent — you'll get a notification when reviewed
             </div>
-          ) : confirming ? (
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={() => setConfirming(false)} style={{ flex:1, padding:"13px", borderRadius:10, fontSize:16, fontWeight:700,
-                border:"2px solid var(--ink)", background:"var(--card)", color:"var(--ink)" }}>Back</button>
-              <button disabled={busy} onClick={submit} style={{ flex:2, padding:"13px", borderRadius:10,
-                fontSize:16, fontWeight:700, color:"var(--ink)", background:"var(--blue)" }}>{busy ? "Sending…" : "Confirm request"}</button>
-            </div>
           ) : (
             <button disabled={!canReview} onClick={() => { setError(""); setConfirming(true); }} style={{
               width:"100%", padding:"13px", borderRadius:10, fontSize:18, fontWeight:700, color:"var(--ink)",
@@ -244,6 +224,19 @@ export default function BookingDrawer({ room, onClose, onSubmit, orgs = [] }) {
           )}
         </div>
       </div>
+      {confirming && !done && (
+        <ConfirmModal title="Confirm your request" confirmLabel="Send request" cancelLabel="Back" busy={busy}
+          onConfirm={submit} onCancel={() => setConfirming(false)}>
+          <div style={{ marginBottom:12 }}>Please check the details. Nothing is sent until you confirm.</div>
+          <div style={{ border:"2px solid var(--ink)", borderRadius:10, padding:"14px 16px", background:"var(--paper)", color:"var(--ink)" }}>
+            <div style={{ fontWeight:700, fontSize:17 }}>{room.name}</div>
+            <div style={{ fontSize:14, color:"var(--ink-faint)", marginBottom:8 }}>{room.building}</div>
+            {bookingOrg && <div style={{ fontSize:15, marginBottom:6 }}>Booking for: <b>{bookingOrg}</b></div>}
+            <div style={{ fontSize:15, marginBottom:6 }}>Time: <b>{fmt12(start)} – {fmt12(end)}</b></div>
+            {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}>{labelOf(k)}</div>)}
+          </div>
+        </ConfirmModal>
+      )}
     </>
   );
 }
