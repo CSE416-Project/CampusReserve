@@ -1,6 +1,6 @@
 export const NAV = {
   leader: [["requests","My requests"],["find","Find a space"],["forum","Forum"],["messages","Messages"],["clubs","Clubs"]],
-  admin: [["approvals","Approvals"],["verifications","Verifications"],["rooms","Rooms"],["forum","Forum"],["messages","Messages"],["clubs","Clubs"]],
+  admin: [["approvals","Approvals"],["verifications","Verifications"],["rooms","Rooms"],["analytics","Analytics"],["forum","Forum"],["messages","Messages"],["clubs","Clubs"]],
   venue: [["rooms","Rooms"],["messages","Messages"],["clubs","Clubs"]],
 };
 
