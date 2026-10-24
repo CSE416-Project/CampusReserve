@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Avatar from '../components/Avatar.jsx';
 
+const PAGE_SIZE = 12;  // divides evenly into rows of 2 or 3 cards
 const STOP = new Set(["with","that","this","from","your","their","them","they","have","will","club","clubs","about","other","into","more","than","also","open","each","where","which","stony","brook","university","students","student","members","member"]);
 const words = c => [...new Set(`${c.name} ${c.bio || ""}`.toLowerCase().match(/[a-z]{4,}/g) || [])].filter(w => !STOP.has(w));
 
@@ -8,6 +9,7 @@ export default function Clubs({ clubs, onOpenClub, loading = false }) {
   const CATEGORIES = [...new Set(clubs.map(c => c.category).filter(Boolean))].sort();
   const [q,setQ]=useState(""); const [cats,setCats]=useState([]);
   const [kws,setKws]=useState([]); const [kq,setKq]=useState("");
+  const [page,setPage]=useState(1);
   // keywords: words that appear in at least two clubs' names or descriptions, most common first
   const keywordCounts = (() => { const m = {}; clubs.forEach(c => words(c).forEach(w => { m[w] = (m[w] || 0) + 1; }));
     return Object.entries(m).filter(([,n]) => n >= 2).sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0])).slice(0, 60); })();
@@ -17,6 +19,16 @@ export default function Clubs({ clubs, onOpenClub, loading = false }) {
   const list = clubs.filter(c => (cats.length === 0 || cats.includes(c.category))
     && (kws.length === 0 || words(c).some(w => kws.includes(w)))
     && `${c.name} ${c.category || ""} ${c.bio}`.toLowerCase().includes(q.toLowerCase()));
+
+  // Back to page 1 whenever the filters (or the club list) change.
+  useEffect(() => setPage(1), [clubs, q, cats, kws]);
+  const pageCount = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  const current = Math.min(page, pageCount);
+  const shown = list.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+  const goTo = p => { setPage(p); window.scrollTo({ top:0, behavior:"smooth" }); };
+  const pageBtn = disabled => ({ padding:"8px 14px", borderRadius:10, fontSize:14, fontWeight:600, border:"2px solid var(--ink)",
+    color:"var(--ink)", background: disabled ? "var(--paper)" : "var(--blue)", opacity: disabled ? 0.5 : 1,
+    cursor: disabled ? "default" : "pointer" });
 
   return (
     <main style={{ maxWidth:1100, margin:"0 auto", padding:"26px 24px 60px" }}>
@@ -62,9 +74,13 @@ export default function Clubs({ clubs, onOpenClub, loading = false }) {
         </aside>
 
         <div style={{ flex:1, minWidth:280 }}>
-          <div style={{ fontSize:14, color:"var(--ink-faint)", fontWeight:600, marginBottom:12 }}>{list.length} {list.length === 1 ? "club" : "clubs"}</div>
+          <div style={{ fontSize:14, color:"var(--ink-faint)", fontWeight:600, marginBottom:12 }}>
+            {list.length > PAGE_SIZE
+              ? `Showing ${(current-1)*PAGE_SIZE+1}–${Math.min(current*PAGE_SIZE, list.length)} of ${list.length} clubs`
+              : `${list.length} ${list.length === 1 ? "club" : "clubs"}`}
+          </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))", gap:14 }}>
-            {list.map(c => (
+            {shown.map(c => (
               <button key={c.name} onClick={()=>onOpenClub(c.name)} style={{ textAlign:"left", background:"var(--card)", border:"2px solid var(--ink)",
                 borderRadius:14, padding:18, boxShadow:"var(--shadow)" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
@@ -80,6 +96,13 @@ export default function Clubs({ clubs, onOpenClub, loading = false }) {
             {loading && <div style={{ color:"var(--ink-faint)", fontSize:15 }}>Loading clubs…</div>}
             {!loading && list.length === 0 && <div style={{ color:"var(--ink-faint)", fontSize:15 }}>No clubs match those filters.</div>}
           </div>
+          {pageCount > 1 && (
+            <nav aria-label="Club pages" style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:12, marginTop:18 }}>
+              <button onClick={()=>goTo(current-1)} disabled={current===1} style={pageBtn(current===1)}>‹ Previous</button>
+              <span style={{ fontSize:14, fontWeight:600 }} aria-current="page">Page {current} of {pageCount}</span>
+              <button onClick={()=>goTo(current+1)} disabled={current===pageCount} style={pageBtn(current===pageCount)}>Next ›</button>
+            </nav>
+          )}
         </div>
       </div>
     </main>
