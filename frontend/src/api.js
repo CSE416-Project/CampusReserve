@@ -67,6 +67,7 @@ export const createRequest = body => call("/requests", { method: "POST", json: b
 export const approve = id => call(`/requests/${id}/approve`, { method: "POST", json: {} });
 export const cancelRequest = id => call(`/requests/${id}/cancel`, { method: "POST", json: {} });
 export const deny = (id, reason) => call(`/requests/${id}/deny`, { method: "POST", json: { reason } });
+export const analytics = days => call(`/admin/analytics?days=${days}`);
 
 // ---- waitlist ---------------------------------------------------------
 export const roomWaitlist = id => call(`/waitlist/rooms/${encodeURIComponent(id)}`);

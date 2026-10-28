@@ -19,6 +19,7 @@ import CreateAccount from './pages/CreateAccount.jsx';
 import Verifications from './pages/Verifications.jsx';
 import { setKnownClubs } from './components/OrgLink.jsx';
 import * as api from './api.js';
+import Analytics from './pages/Analytics.jsx';
 
 const D = getDays(3);
 const HOME = { leader:"find", admin:"approvals", venue:"rooms" };
@@ -375,6 +376,7 @@ export default function App() {
           {role==="admin" && page==="approvals" && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
           {role==="admin" && page==="verifications" && <Verifications items={verifs} onApprove={approveVerif} onReject={rejectVerif} onOpenClub={openClub} />}
           {role==="admin" && page==="rooms" && <RoomsAdmin rooms={rooms} requests={requests} loading={roomsLoading} />}
+          {role==="admin" && page==="analytics" && <Analytics />}
           {role==="venue" && page==="rooms" && <VenueRooms requests={requests} onOpenClub={openClub} />}
           {(role==="leader" || role==="admin") && page==="forum" && <Forum posts={posts} onPost={addPost} onReply={addReply} clubs={role==="leader" ? leaderOrgs : []} loading={postsLoading} onOpenClub={openClub} />}
           {page==="clubs" && <Clubs clubs={clubs} loading={clubsLoading} onOpenClub={openClub} />}
