@@ -13,23 +13,25 @@ export default function Header({ role, page, setPage, unread = 0, verifCount = 0
         <div style={{ display:"flex", alignItems:"center", gap:9 }}>
           <span style={{ fontFamily:"var(--display)", fontSize:22, letterSpacing:".01em" }}>CampusReserve</span>
         </div>
-        <nav style={{ display:"flex", gap:4 }}>
+        <nav aria-label="Main" style={{ display:"flex", gap:4 }}>
           {nav.map(([id,label]) => (
-            <button key={id} onClick={() => setPage(id)} style={{
+            <button key={id} onClick={() => setPage(id)} aria-current={page===id ? "page" : undefined} style={{
               fontSize:15, fontWeight:500, padding:"8px 13px", borderRadius:8,
               color: page===id ? "var(--ink)" : "var(--ink-faint)",
               background: page===id ? "var(--line-soft)" : "transparent" }}>
               {label}
               {id==="verifications" && verifCount>0 && (
-                <span aria-label={`${verifCount} verification requests`} style={{ marginLeft:7, minWidth:20, height:20, padding:"0 6px", borderRadius:999,
+                <span style={{ marginLeft:7, minWidth:20, height:20, padding:"0 6px", borderRadius:999,
                   background:"var(--red-wash)", color:"var(--red)", fontSize:12, fontWeight:700, display:"inline-grid", placeItems:"center", verticalAlign:"middle" }}>
-                  {verifCount>9 ? "9+" : verifCount}
+                  <span aria-hidden="true">{verifCount>9 ? "9+" : verifCount}</span>
+                  <span className="sr-only">, {verifCount} waiting</span>
                 </span>
               )}
               {id==="messages" && unread>0 && (
-                <span aria-label={`${unread} unread messages`} style={{ marginLeft:7, minWidth:20, height:20, padding:"0 6px", borderRadius:999,
+                <span style={{ marginLeft:7, minWidth:20, height:20, padding:"0 6px", borderRadius:999,
                   background:"var(--red-wash)", color:"var(--red)", fontSize:12, fontWeight:700, display:"inline-grid", placeItems:"center", verticalAlign:"middle" }}>
-                  {unread>9 ? "9+" : unread}
+                  <span aria-hidden="true">{unread>9 ? "9+" : unread}</span>
+                  <span className="sr-only">, {unread} unread</span>
                 </span>
               )}
             </button>
@@ -37,7 +39,8 @@ export default function Header({ role, page, setPage, unread = 0, verifCount = 0
         </nav>
       </div>
       <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-        <button onClick={onProfile} title="My profile" aria-label="My profile" style={{ width:36, height:36, borderRadius:999, background:"var(--blue-wash)", color:"var(--link)",
+        <button onClick={onProfile} title="My profile" aria-label="My profile" aria-current={page==="profile" ? "page" : undefined}
+          style={{ width:36, height:36, borderRadius:999, background:"var(--blue-wash)", color:"var(--link)",
           display:"grid", placeItems:"center", fontWeight:700, fontSize:14, border: page==="profile" ? "2px solid var(--blue)" : "2px solid transparent" }}>
           {(name.trim()[0] || "?").toUpperCase()}
         </button>

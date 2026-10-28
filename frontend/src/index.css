@@ -1,5 +1,6 @@
 :root {
-  --ink:#1B2A4A; --ink-soft:#45536E; --ink-faint:#74809A;
+  /* --ink-faint was #74809A (3.7:1 on --paper, below WCAG AA's 4.5:1); #5E6A82 is 5.0:1 */
+  --ink:#1B2A4A; --ink-soft:#45536E; --ink-faint:#5E6A82;
   --blue:#FFC93C; --link:#1F5FD1; --blue-wash:#E3F0FF;
   --green:#13795B; --mint:#9BE3C3; --green-wash:#DDF5EA;
   --amber:#A85A00; --amber-wash:#FFF0CC;
@@ -29,4 +30,14 @@ textarea, input, select { font-family:inherit; color:var(--ink); }
 input::placeholder, textarea::placeholder { color:var(--ink-faint); opacity:1; }
 select option { color:var(--ink); background:#fff; }
 input:focus, textarea:focus, select:focus { box-shadow:3px 3px 0 var(--blue); }
-@media (prefers-reduced-motion:reduce){ * { transition:none!important; animation:none!important; } }
+
+/* Keyboard users always see where they are (mouse clicks don't show it). */
+:focus-visible { outline:3px solid var(--link); outline-offset:2px; }
+main:focus { outline:none; }  /* the skip link focuses <main>; no ring around the whole page */
+
+/* Respect the operating system's accessibility settings. */
+@media (prefers-reduced-motion:reduce){ * { transition:none!important; animation:none!important; scroll-behavior:auto!important; } }
+@media (prefers-contrast:more) {
+  :root { --ink-soft:#1B2A4A; --ink-faint:#33415E; --line:#1B2A4A; }
+  body { background-image:none; }
+}
