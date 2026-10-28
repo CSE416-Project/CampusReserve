@@ -33,6 +33,8 @@ export const PROFILES = {
               values: { zoom: 125, theme: "contrast", focusRing: true, bigCursor: true } },
   adhd:     { label: "ADHD friendly",      note: "Fewer distractions, a reading mask",
               values: { stopAnimations: true, readingMask: true, saturation: "low" } },
+  dyslexia: { label: "Dyslexia friendly",  note: "Clear font, wider spacing, left-aligned text on a cream background",
+              values: { readableFont: true, lineHeight: 1.8, letterSpacing: 0.08, align: "left", bgColor: "#FFF8DC", readingGuide: true } },
   reading:  { label: "Reading support",    note: "Easier font, spacing, highlighted titles and links",
               values: { readableFont: true, lineHeight: 1.8, letterSpacing: 0.04, highlightTitles: true, highlightLinks: true } },
   keyboard: { label: "Keyboard navigation", note: "A strong outline on whatever has focus",
