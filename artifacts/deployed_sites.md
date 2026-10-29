@@ -4,4 +4,5 @@
 
 API docs access: https://campusreserve.onrender.com/docs
 
-Site Access: https://campusreserve-1.onrender.com/
+Site Access: https://campusreserve-1.onrender.com/ and https://campusreserve-stonybrook.onrender.com
+
