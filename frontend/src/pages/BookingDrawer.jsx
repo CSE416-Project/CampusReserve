@@ -4,7 +4,7 @@ import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf } from '../api.js';
 import Pill from '../components/Pill.jsx';
 import WaitlistOffer from '../components/WaitlistOffer.jsx';
 import useDialog from '../a11y/useDialog.js';
-import { useScrollLock } from '../useMedia.js';
+import { useScrollLock, useIsCompact } from '../useMedia.js';
 
 const MIN = 360, MAX = 1410, STEP = 15; // bookable window: 6:00 AM to 11:30 PM
 const DOW = ["S","M","T","W","T","F","S"];
@@ -39,7 +39,9 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const panel = useRef(null);
   // Keyboard and screen readers: focus moves into the drawer, Tab stays inside, Escape closes it.
   useDialog(panel, { open: !!room, onClose });
-  useScrollLock(!!room);  // the page behind doesn't scroll while the drawer is open
+  // Phones and tablets: the page behind doesn't scroll while the drawer is open (desktop unchanged).
+  const compact = useIsCompact();
+  useScrollLock(!!room && compact);
 
   useEffect(() => {
     if (!done) return;
