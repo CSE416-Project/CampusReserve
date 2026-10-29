@@ -19,12 +19,12 @@ export default function RoomsAdmin({ rooms, requests = [], loading = false }) {
     : upcomingEvents(r);
 
   return (
-    <main style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:12, marginBottom:6 }}>
         <div>
           <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>Rooms</h1>
         </div>
-        <select value={building} onChange={e=>setBuilding(e.target.value)} style={{ padding:"9px 12px", fontSize:14.5,
+        <select value={building} onChange={e=>setBuilding(e.target.value)} aria-label="Building" style={{ maxWidth:"100%", padding:"9px 12px", fontSize:14.5,
           border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)" }}>
           {buildingList.map(b=><option key={b}>{b}</option>)}
         </select>

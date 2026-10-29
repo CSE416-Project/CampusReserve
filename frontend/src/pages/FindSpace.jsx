@@ -1,8 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { ROOMS, ALL_FEATURES, BUILDINGS, TYPES, STATUS } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
 import Feature from '../components/Feature.jsx';
 import RoomPhoto from '../components/RoomPhoto.jsx';
+import useDialog from '../a11y/useDialog.js';
+import { useIsPhone, useScrollLock } from '../useMedia.js';
 
 const PAGE_SIZE = 10;
 
@@ -32,21 +34,45 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pageCount);
   const shown = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+  // Phones: filters live in a full-screen sheet opened from the Filters button.
+  const isPhone = useIsPhone();
+  const [sheet,setSheet]=useState(false);
+  const sheetOpen = isPhone && sheet;
+  const panel = useRef(null);
+  useDialog(panel, { open: sheetOpen, onClose: () => setSheet(false) });
+  useScrollLock(sheetOpen);
+  const activeFilters = (building!==BUILDINGS[0]) + (type!==TYPES[0]) + (minCap>0) + picked.length;
+  const clearAll = () => { setBuilding(BUILDINGS[0]); setType(TYPES[0]); setMinCap(0); setPicked([]); setFq(""); };
+
   const goTo = p => { setPage(p); window.scrollTo({ top:0, behavior:"smooth" }); };
   const pageBtn = disabled => ({ padding:"8px 14px", borderRadius:8, fontSize:14, fontWeight:600, border:"2px solid var(--ink)",
     color:"var(--ink)", background: disabled ? "var(--paper)" : "var(--blue)", opacity: disabled ? 0.5 : 1,
     cursor: disabled ? "default" : "pointer" });
 
   return (
-    <main style={{ maxWidth:1400, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:1400, margin:"0 auto", padding:"26px 24px 60px" }}>
       <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>Find a space to book</h1>
-      <div style={{ display:"flex", gap:24, alignItems:"flex-start", flexWrap:"wrap" }}>
-        <aside style={{ width:340, flexShrink:0, position:"sticky", top:80, background:"var(--card)", border:"2px solid var(--ink)",
+      <div className="filters-bar">
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search rooms or buildings" aria-label="Search rooms or buildings" />
+        <button className="filters-btn" onClick={()=>setSheet(true)} data-on={activeFilters>0 || undefined} aria-haspopup="dialog">
+          Filters{activeFilters>0 && ` (${activeFilters})`}
+        </button>
+      </div>
+      <div className="filters-layout" style={{ display:"flex", gap:24, alignItems:"flex-start", flexWrap:"wrap" }}>
+        <aside ref={panel} className={`filters-panel${sheetOpen ? " open" : ""}`}
+          {...(sheetOpen ? { role:"dialog", "aria-modal":true, "aria-labelledby":"fs-filters-title", tabIndex:-1 } : {})}
+          style={{ width:340, flexShrink:0, position:"sticky", top:80, background:"var(--card)", border:"2px solid var(--ink)",
           borderRadius:14, padding:18, boxShadow:"var(--shadow)" }}>
+          <div className="sheet-head">
+            <h2 id="fs-filters-title" style={{ fontSize:20 }}>Filters</h2>
+            {activeFilters>0 && <button onClick={clearAll} style={{ fontSize:15, fontWeight:700, color:"var(--link)" }}>Clear all</button>}
+          </div>
+          <div className="hide-phone">
           <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Search</label>
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Name or building"
             style={{ width:"100%", margin:"6px 0 14px", padding:"9px 11px", fontSize:14.5, border:"2px solid var(--ink)",
             borderRadius:8, background:"var(--paper)", outline:"none" }} />
+          </div>
           <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Building</label>
           <select value={building} onChange={e=>setBuilding(e.target.value)} style={{ width:"100%", margin:"6px 0 14px",
             padding:"9px 11px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)" }}>
@@ -72,7 +98,7 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
           <input value={fq} onChange={e=>setFq(e.target.value)} placeholder="Search features"
             style={{ width:"100%", marginBottom:8, padding:"8px 11px", fontSize:14, border:"2px solid var(--ink)",
             borderRadius:8, background:"var(--paper)", outline:"none" }} />
-          <div style={{ maxHeight:"calc(100vh - 520px)", minHeight:220, overflowY:"auto", border:"2px solid var(--ink)",
+          <div className="feature-list" style={{ maxHeight:"calc(100vh - 520px)", minHeight:220, overflowY:"auto", border:"2px solid var(--ink)",
             borderRadius:8, padding:"4px 10px", background:"var(--paper)" }}>
             {shownFeatures.map(ft => (
               <label key={ft} style={{ display:"flex", alignItems:"flex-start", gap:9, padding:"6px 0", fontSize:14, cursor:"pointer" }}>
@@ -81,6 +107,11 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
               </label>
             ))}
             {shownFeatures.length===0 && <div style={{ padding:"10px 0", fontSize:14, color:"var(--ink-faint)" }}>No matching features</div>}
+          </div>
+          <div className="sheet-foot">
+            <button onClick={()=>setSheet(false)} style={{ background:"var(--blue)" }}>
+              Show {filtered.length} space{filtered.length===1?"":"s"}
+            </button>
           </div>
         </aside>
 
@@ -94,11 +125,11 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
             </div>
           )}
           {shown.map(r => (
-            <div key={r.id} onClick={()=>!r.closed && onView(r)} style={{ display:"flex", gap:18, flexWrap:"wrap", background:"var(--card)", border:"2px solid var(--ink)",
+            <div key={r.id} className="room-card" onClick={()=>!r.closed && onView(r)} style={{ display:"flex", gap:18, flexWrap:"wrap", background:"var(--card)", border:"2px solid var(--ink)",
               borderRadius:14, padding:18, boxShadow:"var(--shadow)", opacity:r.closed?0.65:1, cursor:r.closed?"default":"pointer",
               borderLeft:`4px solid ${STATUS[r.status].fg}` }}>
-              <div style={{ width:200, flexShrink:0 }}><RoomPhoto room={r} /></div>
-              <div style={{ flex:1, minWidth:240 }}>
+              <div className="room-card-photo" style={{ width:200, flexShrink:0 }}><RoomPhoto room={r} /></div>
+              <div className="room-card-body" style={{ flex:1, minWidth:240 }}>
               <div style={{ display:"flex", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
                 <div>
                   <h3 style={{ fontSize:18, fontWeight:700 }}>{r.name}</h3>
@@ -113,7 +144,7 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
               <div style={{ fontSize:14, color:r.closed?"var(--slate)":"var(--ink-soft)", background:r.closed?"var(--slate-wash)":"var(--paper)",
                 padding:"8px 11px", borderRadius:8, marginBottom:12 }}>{r.note}</div>
               {!r.closed && (
-                <div style={{ display:"flex", gap:14, alignItems:"center" }}>
+                <div className="room-card-actions" style={{ display:"flex", gap:14, alignItems:"center" }}>
                   <span style={{ fontSize:14.5, fontWeight:600, color:"var(--link)" }}>View room details ›</span>
                   <button onClick={e=>{ e.stopPropagation(); onBook(r); }} style={{ marginLeft:"auto", padding:"8px 16px",
                     borderRadius:8, fontSize:14, fontWeight:600, color:"var(--ink)", background:"var(--blue)" }}>Book</button>

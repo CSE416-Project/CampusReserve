@@ -123,7 +123,7 @@ export default function Analytics() {
   }, [days]);
 
   if (!api.LIVE) {
-    return <main style={{ maxWidth:1100, margin:"0 auto", padding:"26px 24px 60px" }}>
+    return <main className="page analytics" style={{ maxWidth:1100, margin:"0 auto", padding:"26px 24px 60px" }}>
       <h1 style={{ fontSize:26, fontWeight:800, marginBottom:12 }}>Analytics</h1>
       <div style={card}>Analytics needs the live server. Set VITE_API_URL and log in with a real admin account.</div>
     </main>;
@@ -134,7 +134,7 @@ export default function Analytics() {
   const dayPoints = s => (s || []).map(p => ({ label: fmtDay(p.day), value: p.value }));
 
   return (
-    <main style={{ maxWidth:1100, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page analytics" style={{ maxWidth:1100, margin:"0 auto", padding:"26px 24px 60px" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, marginBottom:18 }}>
         <h1 style={{ fontSize:26, fontWeight:800 }}>Analytics</h1>
         <div role="group" aria-label="Time range" style={{ display:"flex", gap:6 }}>

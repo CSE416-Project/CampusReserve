@@ -23,6 +23,11 @@ export const DEFAULTS = {
   bigCursor: false,
   readingGuide: false,
   readingMask: false,
+  // Read aloud (speech.js). These don't change the page's look, so applySettings ignores them.
+  readOnClick: false,     // click any text to hear it
+  speakFocus: false,      // speak each control as it gets keyboard focus
+  speechRate: 1,
+  voice: "",              // a browser voice name, or "" for the default
 };
 
 // Quick profiles: each one switches on a group of the settings above.
@@ -89,6 +94,7 @@ export function applySettings(s) {
   flag("stop-animations", s.stopAnimations);
   flag("focus-ring", s.focusRing);
   flag("big-cursor", s.bigCursor);
+  flag("read-on-click", s.readOnClick);
 }
 
 // Call before React renders so the page never flashes with the wrong settings.

@@ -40,10 +40,10 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
   };
 
   return (
-    <main style={{ maxWidth:700, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:700, margin:"0 auto", padding:"26px 24px 60px" }}>
       <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>My profile</h1>
 
-      <div style={card}>
+      <div className="card-pad" style={card}>
         <div style={{ display:"flex", gap:16, alignItems:"center", marginBottom:6 }}>
           <Avatar person name={name || "?"} size={64} />
           <div>
@@ -63,7 +63,7 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
       </div>
 
       {role==="leader" && (
-        <div style={card}>
+        <div className="card-pad" style={card}>
           <div style={{ fontSize:18, fontWeight:700, marginBottom:4 }}>My organizations ({memberships.length})</div>
           <div style={{ fontSize:14.5, color:"var(--ink-soft)", marginBottom:14 }}>You can book spaces only for clubs where an admin has verified you as an e-board member.</div>
           {membershipsLoaded && verifiedCount===0 && (
@@ -120,7 +120,7 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
         </div>
       )}
 
-      <div style={card}>
+      <div className="card-pad" style={card}>
         <div style={{ fontSize:18, fontWeight:700 }}>Change password</div>
         <label style={label}>Current password
           <PasswordInput value={cur} onChange={e=>{ setCur(e.target.value); setPwMsg(null); }} style={field} />

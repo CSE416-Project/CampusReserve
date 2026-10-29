@@ -12,10 +12,10 @@ export default function Approvals({ requests, onDecide, onOpenClub, clubs = [] }
   const list = tab==="pending" ? pending : tab==="waitlist" ? waitlisted : reviewed;
 
   return (
-    <main style={{ maxWidth:900, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"26px 24px 60px" }}>
       <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>Approvals</h1>
 
-      <div style={{ display:"flex", gap:6, marginBottom:18 }}>
+      <div className="tabs-row" style={{ display:"flex", gap:6, marginBottom:18 }}>
         {[["pending",`Pending (${pending.length})`],["waitlist",`Waitlist (${waitlisted.length})`],["reviewed","Reviewed"]].map(([id,label])=>(
           <button key={id} onClick={()=>setTab(id)} style={{ padding:"8px 15px", borderRadius:8, fontSize:14, fontWeight:600,
             background: tab===id?"var(--blue)":"var(--line-soft)", color: tab===id?"var(--ink)":"var(--ink-soft)" }}>{label}</button>
@@ -47,7 +47,7 @@ export default function Approvals({ requests, onDecide, onOpenClub, clubs = [] }
                   <textarea value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason for denial (shared with the requester)"
                     rows={2} style={{ width:"100%", padding:"9px 11px", fontSize:14.5, border:"2px solid var(--ink)",
                     borderRadius:8, background:"var(--paper)", resize:"vertical" }} />
-                  <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                  <div className="btn-row" style={{ display:"flex", gap:8, marginTop:8 }}>
                     <button disabled={!reason.trim()} onClick={()=>{ onDecide(req.id,"denied",reason); setDenying(null); setReason(""); }}
                       style={{ padding:"8px 14px", borderRadius:8, fontSize:14, fontWeight:600, color:"var(--ink)",
                       background: reason.trim()?"var(--rose)":"var(--line-soft)" }}>Confirm denial</button>
@@ -56,7 +56,7 @@ export default function Approvals({ requests, onDecide, onOpenClub, clubs = [] }
                   </div>
                 </div>
               ) : (
-                <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                <div className="btn-row" style={{ display:"flex", gap:8, marginTop:12 }}>
                   <button onClick={()=>{ onDecide(req.id,"approved"); const n = clubs.find(c=>c.name===req.org)?.count || 1; setNotice(`Approved ${req.room.name} for ${req.org}. Email sent to ${n} e-board member${n===1?"":"s"}.`); }} style={{ padding:"8px 16px", borderRadius:8,
                     fontSize:14, fontWeight:600, color:"var(--ink)", background:"var(--mint)" }}>Approve</button>
                   <button onClick={()=>setDenying(req.id)} style={{ padding:"8px 16px", borderRadius:8,

@@ -17,10 +17,10 @@ export default function MyRequests({ requests, showOrg = false, clubs = [], onCa
   }),[requests,status,building,q]);
 
   return (
-    <main style={{ maxWidth:900, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"26px 24px 60px" }}>
       <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>My requests</h1>
 
-      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:18 }}>
+      <div className="filter-row" style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:18 }}>
         <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search by room"
           style={{ flex:"1 1 200px", padding:"9px 12px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", outline:"none" }} />
         <select value={status} onChange={e=>setStatus(e.target.value)} style={{ padding:"9px 12px", fontSize:14.5,
