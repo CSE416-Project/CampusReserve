@@ -111,7 +111,8 @@ export default function App() {
       let raw;
       if (r==="admin") {
         const [p,a,d] = await Promise.all([api.adminRequests("pending"), api.adminRequests("approved"), api.adminRequests("denied")]);
-        raw = [...p,...a,...d];
+        const w = await api.adminRequests("waitlisted");
+        raw = [...p,...a,...d,...w];
       } else raw = await api.myRequests();
       setRequests(raw.map(x => api.adaptRequest(x, byId)));
     } catch (e) { setApiError(e.message); }
@@ -132,19 +133,19 @@ export default function App() {
   };
 
   // returns the picks that failed ([] when every day was requested)
-  const submitRequest = async (room,picks,org) => {
+  const submitRequest = async (room,picks,org,eventName) => {
     if (api.LIVE) {
       const orgId = orgIds[org];
       if (!orgId) throw new Error("You aren't verified for a club yet. Add your club in your profile and wait for an admin to verify you.");
       const failed = [];
       for (const p of picks) {
-        try { await api.createRequest(api.requestBody(room, orgId, p, `${org} event`)); }
+        try { await api.createRequest(api.requestBody(room, orgId, p, eventName || `${org} event`)); }
         catch (e) { failed.push({ pick:p, msg:e.message }); }
       }
       await loadRequests(role, rooms);
       return failed;
     }
-    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending" }))]);
+    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:eventName }))]);
     return [];
   };
   const decide = async (id,status,reason) => {
@@ -173,13 +174,12 @@ export default function App() {
   // returns the picks that failed, same contract as submitRequest
   const joinWaitlist = async (room,picks,org,eventName) => {
     if (!api.LIVE) {
-      setMockWl(m => {
-        const cur = m[room.id] || [];
-        const add = picks.map((p,i) => ({ position: cur.filter(e => e.start.startsWith(p.key)).length + 1,
-          start:`${p.key}T${p.start}:00`, end:`${p.key}T${p.end}:00`, is_yours:true, request_id:`mock-${Date.now()}-${i}` }));
-        return { ...m, [room.id]:[...cur, ...add] };
-      });
-      setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending" }))]);
+      const cur = mockWl[room.id] || [];
+      const pos = picks.map(p => cur.filter(e => e.start.startsWith(p.key)).length + 1);
+      setMockWl(m => ({ ...m, [room.id]:[...(m[room.id] || []), ...picks.map((p,i) => ({ position:pos[i],
+        start:`${p.key}T${p.start}:00`, end:`${p.key}T${p.end}:00`, is_yours:true, request_id:`mock-${Date.now()}-${i}` }))] }));
+      setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`,
+        status:"waitlisted", position:pos[i], event:eventName }))]);
       return [];
     }
     const orgId = orgIds[org];
@@ -196,7 +196,11 @@ export default function App() {
 
   const cancelRequest = async (id) => {
     if (api.LIVE) {
-      try { await api.cancelRequest(id); setApiError(""); }
+      try {
+        const req = requests.find(r => r.id===id);
+        if (req?.status==="waitlisted") await api.leaveWaitlist(id); else await api.cancelRequest(id);
+        setApiError("");
+      }
       catch (e) { setApiError(e.message); throw e; }
       await loadRequests(role, rooms);
       return;

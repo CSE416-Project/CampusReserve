@@ -25,7 +25,7 @@ export default function MyRequests({ requests, showOrg = false, clubs = [], onCa
           style={{ flex:"1 1 200px", padding:"9px 12px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", outline:"none" }} />
         <select value={status} onChange={e=>setStatus(e.target.value)} style={{ padding:"9px 12px", fontSize:14.5,
           border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)" }}>
-          {["All","pending","approved","denied","cancelled"].map(s=><option key={s}>{s}</option>)}
+          {["All","pending","waitlisted","approved","denied","cancelled"].map(s=><option key={s}>{s}</option>)}
         </select>
         <select value={building} onChange={e=>setBuilding(e.target.value)} style={{ padding:"9px 12px", fontSize:14.5,
           border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)" }}>
@@ -43,23 +43,29 @@ export default function MyRequests({ requests, showOrg = false, clubs = [], onCa
               padding:16, boxShadow:"var(--shadow)" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
                 <div>
-                  <div style={{ fontWeight:700, fontSize:16 }}>{req.room.name}</div>
-                  <div style={{ fontSize:14, color:"var(--ink-faint)" }}>{showOrg ? `${req.org} · ` : ""}{req.room.building} · {req.date} · {req.time}</div>
+                  <div style={{ fontWeight:700, fontSize:16 }}>{req.event || req.room.name}</div>
+                  <div style={{ fontSize:14, color:"var(--ink-faint)" }}>{req.event ? `${req.room.name} · ` : ""}{showOrg ? `${req.org} · ` : ""}{req.room.building} · {req.date} · {req.time}</div>
                   {req.status==="denied" && <div style={{ fontSize:14, color:"var(--red)", marginTop:4 }}>Reason: {req.reason}</div>}
                 </div>
                 <Pill status={req.status} />
               </div>
+              {req.status==="waitlisted" && (
+                <div style={{ marginTop:12, background:"var(--blue-wash)", borderRadius:10, padding:"11px 14px", fontSize:14, color:"var(--ink-soft)", lineHeight:1.5 }}>
+                  <b>Your spot: #{req.position || "–"}</b> in line for this time. {req.position > 1 ? `${req.position - 1} club${req.position === 2 ? "" : "s"} ahead of you.` : "You're next in line."}
+                  {" "}You can't book this room unless the current group cancels. If they do, your request moves back to pending review and you'll get a notification.
+                </div>
+              )}
               {req.status!=="denied" && req.status!=="cancelled" && onCancel && (
                 <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                   {asking===req.id ? (<>
-                    <span style={{ fontSize:14, fontWeight:600 }}>Cancel this request?</span>
+                    <span style={{ fontSize:14, fontWeight:600 }}>{req.status==="waitlisted" ? "Leave the waitlist?" : "Cancel this request?"}</span>
                     <button disabled={busy===req.id} onClick={()=>cancel(req.id)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
                       border:"2px solid var(--ink)", borderRadius:8, background:"var(--red)", color:"#fff", cursor:"pointer" }}>{busy===req.id ? "Cancelling…" : "Yes, cancel it"}</button>
                     <button disabled={busy===req.id} onClick={()=>setAsking(null)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
                       border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", color:"var(--ink)", cursor:"pointer" }}>Keep it</button>
                   </>) : (
                     <button onClick={()=>setAsking(req.id)} style={{ padding:"7px 14px", fontSize:14, fontWeight:700,
-                      border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", color:"var(--ink)", cursor:"pointer" }}>Cancel request</button>
+                      border:"2px solid var(--ink)", borderRadius:8, background:"var(--card)", color:"var(--ink)", cursor:"pointer" }}>{req.status==="waitlisted" ? "Leave waitlist" : "Cancel request"}</button>
                   )}
                 </div>
               )}

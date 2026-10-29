@@ -30,8 +30,10 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [wlMsg, setWlMsg] = useState("");
+  const [eventName, setEventName] = useState("");
   const [error, setError] = useState("");
   const [live, setLive] = useState({});                // live busy intervals by day key
+  const [schedErr, setSchedErr] = useState("");   // set when the room's schedule can't be loaded
   const loaded = useRef(new Set());
   const panel = useRef(null);
   // Keyboard and screen readers: focus moves into the drawer, Tab stays inside, Escape closes it.
@@ -52,12 +54,13 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     const first = new Date(month.y, month.m, 1), last = new Date(month.y, month.m + 1, 0);
     if (last < today) return;
     loaded.current.add(id);
+    setSchedErr("");
     roomSchedule(room.id, dayKeyOf(first < today ? today : first), dayKeyOf(last))
       .then(items => setLive(prev => {
         const next = { ...prev }, add = busyFromSchedule(items);
         for (const k in add) next[k] = [...(next[k] || []), ...add[k]];
         return next;
-      })).catch(() => {});
+      })).catch(e => { loaded.current.delete(id); setSchedErr(e.message || "Couldn't load this room's schedule."); });
   }, [room?.id, month.y, month.m]);
 
   if (!room) return null;
@@ -83,7 +86,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const conflicts = sorted.filter(k => { const o = overlaps(k); return o.booked.length > 0 || o.requested.length > 0; });
   const needOrg = orgs.length > 1 && !org;
   const bookingOrg = orgs.length > 1 ? org : orgs[0];
-  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg;
+  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg && eventName.trim().length > 0;
 
   const setStartClamped = m => { const s = clamp(m, MIN, MAX - STEP); setStart(s); if (end <= s) setEnd(Math.min(s + 60, MAX)); };
   const setEndClamped = m => { setEnd(clamp(m, start + STEP, MAX)); };
@@ -102,7 +105,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     setBusy(true); setError("");
     try {
       const picks = sorted.map(k => ({ key: k, label: labelOf(k), start: toHHMM(start), end: toHHMM(end) }));
-      const failed = (await onSubmit(room, picks, bookingOrg)) || [];
+      const failed = (await onSubmit(room, picks, bookingOrg, eventName.trim())) || [];
       if (failed.length === 0) { setDone(true); return; }
       setDates(failed.map(f => f.pick.key)); setConfirming(false);
       setError(failed.map(f => `${f.pick.label}: ${f.msg}`).join(" "));
@@ -110,13 +113,13 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     finally { setBusy(false); }
   };
 
-  const joinWl = async eventName => {
+  const joinWl = async () => {
     setBusy(true); setError(""); setWlMsg("");
     try {
       const picks = conflicts.map(k => ({ key: k, label: labelOf(k), start: toHHMM(start), end: toHHMM(end) }));
-      const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName)) || [];
+      const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName.trim())) || [];
       const ok = picks.length - failed.length;
-      if (ok) setWlMsg(`✓ You're on the waitlist for ${ok} day${ok === 1 ? "" : "s"}.`);
+      if (ok) setWlMsg(`✓ You joined the waitlist for ${ok} time slot${ok === 1 ? "" : "s"}. See your spot under My requests.`);
       setDates(ds => ds.filter(k => !conflicts.includes(k) || failed.some(f => f.pick.key === k)));
       if (failed.length) setError(failed.map(f => `${f.pick.label}: ${f.msg}`).join(" "));
     } catch (e) { setError(e.message || "Couldn't join the waitlist."); }
@@ -147,6 +150,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               <div style={{ border:"2px solid var(--ink)", borderRadius:10, padding:"14px 16px", background:"var(--paper)" }}>
                 <div style={{ fontWeight:700, fontSize:17 }}>{room.name}</div>
                 <div style={{ fontSize:14, color:"var(--ink-faint)", marginBottom:8 }}>{room.building}</div>
+                <div style={{ fontSize:15, marginBottom:6 }}>Event: <b>{eventName.trim()}</b></div>
                 {bookingOrg && <div style={{ fontSize:15, marginBottom:6 }}>Booking for: <b>{bookingOrg}</b></div>}
                 <div style={{ fontSize:15, marginBottom:6 }}>Time: <b>{fmt12(start)} – {fmt12(end)}</b></div>
                 {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}>{labelOf(k)}</div>)}
@@ -155,6 +159,14 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
           )}
 
           <div style={{ display: confirming ? "none" : "block" }}>
+            {schedErr && <div role="alert" style={{ marginBottom:14, padding:"10px 14px", borderRadius:10, background:"var(--red-wash)",
+              color:"var(--red)", border:"2px solid var(--red)", fontSize:14, fontWeight:600 }}>
+              Couldn't load this room's schedule ({schedErr}), so some times may look free when they aren't. Change months or reopen to retry.</div>}
+            <div style={{ marginBottom:18 }}>
+              <div style={{ fontSize:15.6, fontWeight:700, marginBottom:8 }}>Event name</div>
+              <input value={eventName} onChange={e => setEventName(e.target.value)} maxLength={100} placeholder="e.g. Spring showcase rehearsal"
+                style={{ width:"100%", padding:"10px 12px", fontSize:15, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" }} />
+            </div>
             {orgs.length > 1 && (
               <div style={{ marginBottom:18 }}>
                 <div style={{ fontSize:15.6, fontWeight:700, marginBottom:8 }}>Booking for which club?</div>
@@ -241,7 +253,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
             {wlMsg && <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
             {conflicts.length > 0 && !needOrg && onJoinWaitlist && (
-              <WaitlistOffer roomName={room.name} days={conflicts} start={start} end={end} line={waitlistLine} busy={busy} onJoin={joinWl} />
+              <WaitlistOffer eventName={eventName} roomName={room.name} days={conflicts} start={start} end={end} line={waitlistLine} busy={busy} onJoin={joinWl} />
             )}
           </div>
         </div>
@@ -265,6 +277,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               {needOrg ? "Choose a club to continue"
                 : sorted.length === 0 ? "Pick at least one day"
                 : conflicts.length ? "Time conflict: join the waitlist or change the time"
+                : !eventName.trim() ? "Add an event name to continue"
                 : `Review ${sorted.length} request${sorted.length === 1 ? "" : "s"}`}
             </button>
           )}

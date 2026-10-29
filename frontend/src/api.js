@@ -97,10 +97,10 @@ export const dayKeyOf = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.
 export function adaptRequest(r, roomsById = {}) {
   const s = new Date(r.start_time);
   const room = roomsById[r.room_id] || { id: r.room_id, name: r.room_name || "Room", building: "" };
-  const status = r.status === "waitlisted" ? "pending" : r.status;
+  const status = r.status;
   return { id: r.id, room, org: r.organization_name || "", date: `${DOW[s.getDay()]}, ${MON[s.getMonth()]} ${s.getDate()}`,
     time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason,
-    event: r.event_name };
+    event: r.event_name, position: r.waitlist_position };
 }
 
 // Busy intervals per day from schedule items: { "2026-10-21": [[startMin, endMin, "booked"|"requested"], ...] }
