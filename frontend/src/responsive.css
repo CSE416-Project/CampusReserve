@@ -1,0 +1,201 @@
+/* Phone and tablet layouts.
+   Breakpoints (keep in sync with useMedia.js):
+     phone   up to 639px    one column, filters in a full-screen sheet, bigger tap targets
+     tablet  640 to 1023px  bottom tab bar, side-by-side layouts where they fit
+     desktop 1024px and up  unchanged
+   Most of the app is styled inline, so the overrides here use !important on class names
+   added to the layout elements. */
+
+:root {
+  --topbar-h: 56px;
+  --tabbar-h: 64px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+img, video { max-width: 100%; }
+
+/* Pieces that only appear on small screens. */
+.filters-bar, .sheet-head, .sheet-foot, .msg-back { display: none !important; }
+
+/* ===== Top bar and bottom tab bar (Header.jsx renders these below 1024px) ===== */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) max(14px, env(safe-area-inset-right, 0px)) 0 max(14px, env(safe-area-inset-left, 0px));
+  background: var(--card); border-bottom: 3px solid var(--ink);
+}
+.topbar-logo { font-family: var(--display); font-size: 21px; letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.topbar-icon, .topbar-avatar { width: 40px; height: 40px; border-radius: 999px; display: grid; place-items: center; flex-shrink: 0; }
+.topbar-icon { color: #fff; background: #1F5FD1; border: 2px solid var(--ink) !important; }
+.topbar-avatar { background: var(--blue-wash); color: var(--link); font-weight: 700; font-size: 15px; border: 2px solid transparent; }
+.topbar-avatar[data-active] { border-color: var(--ink); background: var(--blue); color: var(--ink); }
+.topbar-logout { height: 40px; padding: 0 12px; border-radius: 8px; border: 2px solid var(--ink) !important; font-size: 14px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; justify-content: center;
+  padding: 0 max(4px, env(safe-area-inset-right, 0px)) var(--safe-b) max(4px, env(safe-area-inset-left, 0px));
+  background: var(--card); border-top: 3px solid var(--ink);
+}
+.tab {
+  flex: 1; min-width: 0; max-width: 140px; height: var(--tabbar-h);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  color: var(--ink-faint); padding: 0 2px;
+}
+.tab:hover:not(:disabled), .tab:active:not(:disabled) { transform: none; }
+.tab-icon { position: relative; width: 54px; height: 30px; border-radius: 999px; display: grid; place-items: center; border: 2px solid transparent; transition: background .15s; }
+.tab[aria-current="page"] { color: var(--ink); }
+.tab[aria-current="page"] .tab-icon { background: var(--blue); border-color: var(--ink); }
+.tab-label { font-size: 12px; font-weight: 700; line-height: 1.1; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tab-badge-dot { position: absolute; top: -1px; right: 9px; width: 11px; height: 11px; border-radius: 999px; background: var(--red); border: 2px solid var(--card); }
+html[data-a11y-theme="dark"] .tab[aria-current="page"] { color: var(--ink); }
+html[data-a11y-theme="dark"] .tab[aria-current="page"] .tab-icon { color: #1B2A4A; }
+
+/* Leave room at the bottom of every page for the tab bar. */
+html.has-tabbar body { padding-bottom: calc(var(--tabbar-h) + var(--safe-b)); }
+
+/* "More" menu: a sheet that slides up from the bottom. */
+.sheet-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(27, 42, 74, .35); }
+.more-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; max-height: 85vh; overflow-y: auto;
+  margin: 0 auto; max-width: 560px;
+  padding: 10px 16px calc(16px + var(--safe-b));
+  background: var(--card); color: var(--ink); border: 3px solid var(--ink); border-bottom: none; border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 30px rgba(27, 42, 74, .2); animation: cr-sheet-up .2s ease-out;
+}
+@keyframes cr-sheet-up { from { transform: translateY(40px); opacity: 0; } }
+.sheet-grab { width: 44px; height: 5px; border-radius: 99px; background: var(--line); margin: 0 auto 10px; }
+.sheet-close { width: 40px; height: 40px; border-radius: 10px; background: var(--line-soft); font-size: 22px; line-height: 1; }
+.more-item { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 0 12px; border-radius: 12px; font-size: 16.5px; font-weight: 600; text-align: left; color: var(--ink); }
+.more-item[aria-current="page"] { background: var(--blue-wash); }
+.more-item:hover:not(:disabled) { transform: none; background: var(--line-soft); }
+
+/* Accessibility: with the tab bar showing, its button lives in the top bar, so the floating one hides
+   and the panel drops down from the top. */
+html.has-tabbar .a11y-fab { display: none !important; }
+html.has-tabbar .a11y-panel {
+  top: calc(var(--topbar-h) + 8px) !important; bottom: auto !important; left: auto !important; right: 8px !important;
+  max-height: calc(100dvh - var(--topbar-h) - var(--tabbar-h) - var(--safe-b) - 24px) !important;
+}
+html.has-tabbar .a11y-talkbar { left: 50% !important; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + var(--safe-b) + 10px) !important; white-space: nowrap; }
+
+/* Small laptops (1024 to 1199px): tighten the top nav so the admin's seven links fit. */
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .desk-header { padding: 0 16px !important; }
+  .desk-left { gap: 16px !important; }
+  .desk-nav { gap: 2px !important; }
+  .desk-nav button { padding: 8px 8px !important; font-size: 14px !important; }
+}
+
+/* ===== Phones and tablets ===== */
+@media (max-width: 1023px) {
+  /* 16px text in form fields stops iPhones from zooming in when a field is tapped. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
+  /* Finger-sized targets. */
+  .page button, .booking-panel button { min-height: 40px; }
+  .page label:has(> input[type="checkbox"]) { min-height: 40px; align-items: center !important; }
+  .page input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; margin-top: 0 !important; }
+  .page input[type="range"], .booking-panel input[type="range"] { height: 32px; }
+
+  /* Find a space / Clubs: the sidebar sits under the top bar, and room cards keep the photo on the left. */
+  .filters-panel { top: calc(var(--topbar-h) + 14px) !important; width: 280px !important; }
+  .room-card { flex-wrap: nowrap !important; }
+  .room-card-photo { width: 150px !important; }
+  .room-card-body { min-width: 0 !important; }
+
+  .rd-grid { grid-template-columns: 1fr !important; gap: 26px !important; }
+  .analytics section { overflow: hidden; }
+}
+
+/* ===== Phones ===== */
+@media (max-width: 639px) {
+  .page { padding: 16px 14px 36px !important; overflow-wrap: anywhere; }
+  .page h1 { font-size: 24px !important; margin-bottom: 12px !important; }
+  .app-banner { margin: 12px 14px 0 !important; }
+
+  /* Filters: a search box and a Filters button; the filters open in a full-screen sheet. */
+  .filters-bar {
+    display: flex !important; gap: 8px; align-items: center;
+    position: sticky; top: var(--topbar-h); z-index: 15; margin: -4px -14px 12px; padding: 8px 14px;
+    background: var(--paper); border-bottom: 2px solid var(--line);
+  }
+  .filters-bar input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; border: 2px solid var(--ink); border-radius: 10px; background: var(--card); outline: none; }
+  .filters-btn { height: 44px; padding: 0 14px; border-radius: 10px; border: 2px solid var(--ink) !important; background: var(--card); color: var(--ink); font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .filters-btn[data-on] { background: var(--blue); }
+  .filters-layout { display: block !important; }
+  .filters-panel { display: none !important; }
+  .filters-panel.open {
+    display: block !important; position: fixed !important; inset: 0 !important; z-index: 70; width: auto !important;
+    border: none !important; border-radius: 0 !important; box-shadow: none !important;
+    overflow-y: auto; padding: 0 16px calc(96px + var(--safe-b)) !important;
+  }
+  .filters-panel .hide-phone { display: none !important; }
+  .filters-panel .feature-list { max-height: 45vh !important; min-height: 0 !important; }
+  .sheet-head {
+    display: flex !important; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 2; margin: 0 -16px 14px; padding: 12px 16px;
+    background: var(--card); border-bottom: 2px solid var(--ink);
+  }
+  .sheet-foot {
+    display: flex !important; gap: 10px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 71;
+    padding: 12px 16px calc(12px + var(--safe-b)); background: var(--card); border-top: 2px solid var(--ink);
+  }
+  .sheet-foot button { flex: 1; height: 48px; border-radius: 10px; font-size: 16px; font-weight: 700; color: var(--ink); }
+
+  /* Room cards: photo across the top. */
+  .room-card { flex-direction: column !important; gap: 12px !important; padding: 12px !important; }
+  .room-card-photo { width: 100% !important; height: 170px; }
+  .room-card-actions button { padding: 0 22px !important; }
+
+  /* Room details: the Book button stays in reach at the bottom. */
+  .rd-head h1 { font-size: 26px !important; }
+  .rd-head .rd-sub { font-size: 16px !important; }
+  .rd-preview { height: 170px !important; margin-bottom: 22px !important; }
+  .rd-book {
+    position: fixed; left: 14px; right: 14px; z-index: 25; bottom: calc(var(--tabbar-h) + var(--safe-b) + 10px);
+    height: 52px !important; padding: 0 !important; font-size: 17px !important; box-shadow: 3px 3px 0 var(--ink) !important;
+  }
+  .rd-page { padding-bottom: 90px !important; }
+  .rd-page [style*="font-size: 18px"] { font-size: 16px !important; }
+  .rd-page [style*="font-size: 19px"] { font-size: 17px !important; }
+
+  /* Messages: the list, or one conversation full screen. */
+  .msg-layout { display: block !important; }
+  .msg-list { width: 100% !important; }
+  .msg-pane {
+    min-width: 0 !important;
+    height: calc(100dvh - var(--topbar-h) - var(--tabbar-h) - var(--safe-b) - 32px); min-height: 360px !important;
+  }
+  .msg-pane .msg-bubble { max-width: 86% !important; }
+  .msg-back { display: grid !important; place-items: center; width: 40px; height: 40px; margin: -6px 4px -6px -8px; border-radius: 10px; font-size: 24px; color: var(--link); }
+
+  /* Booking: a full-screen sheet with the Review/Confirm button pinned to the bottom. */
+  .booking-panel { width: 100% !important; max-width: 100% !important; box-shadow: none !important; }
+  .booking-head { padding: 14px 64px 14px 16px !important; }
+  .booking-head h2 { font-size: 21px !important; }
+  .booking-close { width: 42px !important; height: 42px !important; top: 12px !important; right: 12px !important; font-size: 22px; }
+  .booking-body { padding: 16px !important; }
+  .booking-foot { padding: 12px 16px calc(12px + var(--safe-b)) !important; }
+  .booking-panel .cal-day { height: 44px !important; }
+
+  /* Cards with action buttons: buttons share the full width. */
+  .btn-row { width: 100%; }
+  .btn-row > button { flex: 1; }
+  .tabs-row { flex-wrap: wrap; }
+  .tabs-row > button { flex: 1 1 auto; }
+  .card-pad { padding: 18px 16px !important; }
+  .auth-card { padding: 24px 18px 22px !important; }
+  .row-wrap { flex-wrap: wrap; gap: 6px 10px; }
+  .filter-row > select { flex: 1 1 140px; min-width: 0; max-width: 100%; }
+
+  /* Floating accessibility button on screens without the tab bar (login, sign up). */
+  .a11y-fab { width: 50px !important; height: 50px !important; left: 12px !important; bottom: calc(12px + var(--safe-b)) !important; }
+  .a11y-panel { left: 8px !important; right: 8px !important; width: auto !important; max-width: none !important; }
+  html:not(.has-tabbar) .a11y-panel { bottom: calc(72px + var(--safe-b)) !important; max-height: calc(100dvh - 90px) !important; }
+  html.has-tabbar .a11y-panel { left: 8px !important; }
+  html:not(.has-tabbar) .a11y-talkbar { left: 72px !important; bottom: calc(18px + var(--safe-b)) !important; }
+}
+
+@media (prefers-reduced-motion: reduce) { .more-sheet { animation: none; } }

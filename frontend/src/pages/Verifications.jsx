@@ -10,7 +10,7 @@ export default function Verifications({ items, onApprove, onReject, onOpenClub, 
     setBusy(null);
   };
   return (
-    <main style={{ maxWidth:900, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"26px 24px 60px" }}>
       <h1 style={{ fontSize:26, fontWeight:800, marginBottom:6 }}>Verification requests ({items.length})</h1>
       <div style={{ fontSize:14.5, color:"var(--ink-soft)", marginBottom:18 }}>
         Club leaders ask to be verified as e-board members. Only verified members can request bookings for a club.
@@ -25,14 +25,14 @@ export default function Verifications({ items, onApprove, onReject, onOpenClub, 
             <div key={it.id} style={{ background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, padding:16, boxShadow:"var(--shadow)",
               display:"flex", gap:14, alignItems:"center", flexWrap:"wrap" }}>
               <Avatar person name={it.userName} size={46} />
-              <div style={{ flex:1, minWidth:200 }}>
+              <div style={{ flex:1, minWidth:180 }}>
                 <div style={{ fontWeight:700, fontSize:16 }}>{it.userName}</div>
                 <div style={{ fontSize:14, color:"var(--ink-faint)" }}>{it.email}</div>
                 <div style={{ fontSize:14.5, marginTop:4 }}>
                   Wants to be verified as <b>{it.position || "e-board member"}</b> of <OrgLink name={it.orgName} onOpen={onOpenClub} />
                 </div>
               </div>
-              <div style={{ display:"flex", gap:8 }}>
+              <div className="btn-row" style={{ display:"flex", gap:8 }}>
                 <button disabled={busy===it.id} onClick={()=>act(onApprove, it, `Verified ${it.userName} for ${it.orgName}.`)} style={{ padding:"8px 16px", borderRadius:8,
                   fontSize:14, fontWeight:600, color:"var(--ink)", background:"var(--mint)" }}>Verify</button>
                 <button disabled={busy===it.id} onClick={()=>act(onReject, it, `Rejected ${it.userName}'s request for ${it.orgName}.`)} style={{ padding:"8px 16px", borderRadius:8,

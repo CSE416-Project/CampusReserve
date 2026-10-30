@@ -4,6 +4,7 @@ import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf } from '../api.js';
 import Pill from '../components/Pill.jsx';
 import WaitlistOffer from '../components/WaitlistOffer.jsx';
 import useDialog from '../a11y/useDialog.js';
+import { useScrollLock, useIsCompact } from '../useMedia.js';
 
 const MIN = 360, MAX = 1410, STEP = 15; // bookable window: 6:00 AM to 11:30 PM
 const DOW = ["S","M","T","W","T","F","S"];
@@ -38,6 +39,9 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const panel = useRef(null);
   // Keyboard and screen readers: focus moves into the drawer, Tab stays inside, Escape closes it.
   useDialog(panel, { open: !!room, onClose });
+  // Phones and tablets: the page behind doesn't scroll while the drawer is open (desktop unchanged).
+  const compact = useIsCompact();
+  useScrollLock(!!room && compact);
 
   useEffect(() => {
     if (!done) return;
@@ -129,18 +133,18 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   return (
     <>
       <div onClick={onClose} aria-hidden="true" style={{ position:"fixed", inset:0, background:"rgba(27,42,74,.28)", zIndex:40 }} />
-      <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="booking-title" aria-describedby="booking-sub" tabIndex={-1}
+      <div ref={panel} className="booking-panel" role="dialog" aria-modal="true" aria-labelledby="booking-title" aria-describedby="booking-sub" tabIndex={-1}
         style={{ position:"fixed", top:0, right:0, bottom:0, width:500, maxWidth:"94vw", background:"var(--card)",
         zIndex:50, boxShadow:"-8px 0 40px rgba(27,42,74,.18)", display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"20px 22px", borderBottom:"1px solid var(--line)" }}>
+        <div className="booking-head" style={{ padding:"20px 22px", borderBottom:"1px solid var(--line)" }}>
           <Pill status={room.status} small />
           <h2 id="booking-title" style={{ fontSize:24, fontWeight:800, margin:"10px 0 3px" }}>{room.name}</h2>
           <div id="booking-sub" style={{ fontSize:15.6, color:"var(--ink-faint)" }}>{room.building} · Holds {room.cap}</div>
-          <button onClick={onClose} aria-label="Close booking" style={{ position:"absolute", top:18, right:20, width:30, height:30,
+          <button className="booking-close" onClick={onClose} aria-label="Close booking" style={{ position:"absolute", top:18, right:20, width:30, height:30,
             borderRadius:8, background:"var(--line-soft)" }}>×</button>
         </div>
 
-        <div style={{ padding:"18px 22px", overflowY:"auto", flex:1 }}>
+        <div className="booking-body" style={{ padding:"18px 22px", overflowY:"auto", flex:1, overscrollBehavior:"contain" }}>
           {error && <div role="alert" style={{ color:"var(--red)", fontWeight:600, fontSize:14.5, marginBottom:12 }}>{error}</div>}
 
           {confirming && (
@@ -193,7 +197,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
                   const past = k < todayKey, sel = dates.includes(k);
                   const clash = sel && conflicts.includes(k);
                   return (
-                    <button key={k} disabled={past} onClick={() => toggleDate(k)} aria-label={labelOf(k)} aria-pressed={sel}
+                    <button key={k} className="cal-day" disabled={past} onClick={() => toggleDate(k)} aria-label={labelOf(k)} aria-pressed={sel}
                       style={{ height:40, borderRadius:8, fontSize:15, fontWeight:700,
                         border: `2px solid ${clash ? "var(--red)" : sel ? "var(--ink)" : k === todayKey ? "var(--ink-faint)" : "transparent"}`,
                         background: clash ? "var(--red-wash)" : sel ? "var(--blue)" : "var(--card)",
@@ -258,7 +262,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
           </div>
         </div>
 
-        <div style={{ padding:"16px 22px", borderTop:"1px solid var(--line)", background:"var(--paper)" }}>
+        <div className="booking-foot" style={{ padding:"16px 22px", borderTop:"1px solid var(--line)", background:"var(--paper)" }}>
           {done ? (
             <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:16.8, textAlign:"center" }}>
               ✓ {sorted.length} request{sorted.length === 1 ? "" : "s"} sent — you'll get a notification when reviewed
