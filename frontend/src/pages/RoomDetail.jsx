@@ -61,25 +61,25 @@ export default function RoomDetail({ room, onBack, onBook }) {
   }, [live, room.id]);
 
   return (
-    <main style={{ maxWidth:1180, margin:"0 auto", padding:"28px 30px 70px" }}>
+    <main className="page rd-page" style={{ maxWidth:1180, margin:"0 auto", padding:"28px 30px 70px" }}>
       <button onClick={onBack} style={{ fontSize:18, fontWeight:600, color:"var(--link)", marginBottom:14 }}>‹ Back to search</button>
 
-      <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:18 }}>
+      <div className="rd-head" style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:18 }}>
         <div>
           <Pill status={room.status} small />
           <h1 style={{ fontSize:34, fontWeight:800, margin:"10px 0 4px" }}>{room.name}</h1>
-          <div style={{ fontSize:19, color:"var(--ink-faint)" }}>{room.building} · Holds {room.cap} · {room.type}</div>
+          <div className="rd-sub" style={{ fontSize:19, color:"var(--ink-faint)" }}>{room.building} · Holds {room.cap} · {room.type}</div>
         </div>
         {!room.closed && (
-          <button onClick={()=>onBook(room)} style={{ padding:"12px 22px", borderRadius:10, fontSize:19, fontWeight:700,
+          <button className="rd-book" onClick={()=>onBook(room)} style={{ padding:"12px 22px", borderRadius:10, fontSize:19, fontWeight:700,
             color:"var(--ink)", background:"var(--blue)", height:"fit-content" }}>Book this room</button>
         )}
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1.3fr 1fr", gap:32, alignItems:"start" }}>
+      <div className="rd-grid" style={{ display:"grid", gridTemplateColumns:"1.3fr 1fr", gap:32, alignItems:"start" }}>
         <div>
           <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>3D model preview</div>
-          <div style={{ height:280, borderRadius:18, marginBottom:28, position:"relative",
+          <div className="rd-preview" style={{ height:280, borderRadius:18, marginBottom:28, position:"relative",
             background:"linear-gradient(135deg, #FFC93C 0%, #FF9B7A 100%)", display:"grid", placeItems:"center" }}>
             <div style={{ textAlign:"center", color:"var(--ink)" }}>
               <div style={{ fontSize:42, marginBottom:6 }}>⟳</div>
@@ -110,7 +110,7 @@ export default function RoomDetail({ room, onBack, onBook }) {
           </div>
           <div style={{ display:"flex", gap:8 }}>
             <input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Add a comment or tip for other clubs…"
-              style={{ flex:1, padding:"15px 18px", fontSize:18, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" }} />
+              style={{ flex:1, minWidth:0, padding:"15px 18px", fontSize:18, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" }} />
             <button disabled={!draft.trim()} onClick={()=>{ setComments(c=>[...c,{org:"Robotics Club",text:draft}]); setDraft(""); }}
               style={{ padding:"12px 20px", borderRadius:8, fontSize:18, fontWeight:600, color:"var(--ink)",
               background: draft.trim()?"var(--blue)":"var(--line-soft)" }}>Post</button>
