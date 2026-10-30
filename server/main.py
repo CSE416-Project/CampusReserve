@@ -11,7 +11,6 @@ from services import live25
 from services.request_flow import run_waitlist_loop
 from services.usage import UsageMiddleware, flush, flush_loop
 
-
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)  # don't log every 25Live request
 
