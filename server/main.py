@@ -11,7 +11,6 @@ from services import live25
 from services.request_flow import run_waitlist_loop
 from services.usage import UsageMiddleware, flush, flush_loop
 
-
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)  # don't log every 25Live request
 
@@ -43,7 +42,7 @@ app.add_middleware(UsageMiddleware)
 # still work fine without it, since those aren't cross-origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://campusreserve-1.onrender.com"],
+    allow_origins=["http://localhost:5173", "https://campusreserve-stonybrook.onrender.com"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

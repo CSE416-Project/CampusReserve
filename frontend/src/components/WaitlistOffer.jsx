@@ -1,18 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { waitingAhead, labelOfKey, fmt12 } from './WaitlistPanel.jsx';
 
-// Shown inside BookingDrawer when a picked day/time is already booked.
+// Shown inside BookingDrawer when a picked day/time is already booked or requested.
 // days: conflicting day keys; start/end: minutes since midnight; line: room waitlist entries.
-export default function WaitlistOffer({ roomName, days, start, end, line, busy, onJoin }) {
-  const [eventName, setEventName] = useState('');
+export default function WaitlistOffer({ roomName, days, start, end, line, busy, eventName, onJoin }) {
   const ref = useRef(null);
-  // bring the conflict into view the moment it appears
   useEffect(() => { if (days.length) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [days.length > 0]);
   if (days.length === 0) return null;
+  const ready = !!eventName.trim();
 
   return (
     <div ref={ref} style={{ marginTop: 16, border: '2px solid var(--red)', borderRadius: 12, overflow: 'hidden', background: 'var(--card)' }}>
-      {/* 1. tell them there's a conflict and what it means */}
       <div role="alert" style={{ padding: '12px 16px', background: 'var(--red-wash)', color: 'var(--ink)' }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--red)', marginBottom: 4 }}>⚠ Time conflict</div>
         <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>
@@ -21,11 +19,13 @@ export default function WaitlistOffer({ roomName, days, start, end, line, busy, 
         </div>
       </div>
 
-      {/* 2. still give them the waitlist option */}
       <div style={{ padding: '14px 16px' }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Want to join the waitlist instead?</div>
         <div style={{ fontSize: 14, color: 'var(--ink-soft)', marginBottom: 10, lineHeight: 1.5 }}>
           You can't request these times yet. If the current group cancels, the next club in line gets the room automatically.
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-faint)', margin: '0 0 4px' }}>
+          You'll get a spot in line for each time slot below:
         </div>
         {days.map(k => {
           const n = waitingAhead(line, k, start, end);
@@ -38,15 +38,14 @@ export default function WaitlistOffer({ roomName, days, start, end, line, busy, 
             </div>
           );
         })}
-        <input value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Event name (required)"
-          style={{ width: '100%', margin: '10px 0', padding: '9px 11px', fontSize: 14.5, border: '2px solid var(--ink)',
-          borderRadius: 8, background: 'var(--paper)', outline: 'none' }} />
-        <button disabled={busy || !eventName.trim()} onClick={() => onJoin(eventName.trim())}
-          style={{ width: '100%', padding: '11px', borderRadius: 10, fontSize: 15.5, fontWeight: 700, color: 'var(--ink)',
-          background: eventName.trim() ? 'var(--blue)' : 'var(--line-soft)' }}>
-          {busy ? 'Joining…' : `Join waitlist for ${days.length} day${days.length === 1 ? '' : 's'}`}
+        <button disabled={busy || !ready} onClick={() => onJoin()}
+          style={{ width: '100%', marginTop: 12, padding: '11px', borderRadius: 10, fontSize: 15.5, fontWeight: 700, color: 'var(--ink)',
+          background: ready ? 'var(--blue)' : 'var(--line-soft)' }}>
+          {busy ? 'Joining…' : ready ? 'Join waitlist' : 'Add an event name above to join'}
         </button>
-        <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', marginTop: 6 }}>Your final spot is confirmed after you join.</div>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', marginTop: 6 }}>
+          After joining, see your spot under My requests. Your final position is confirmed once you join.
+        </div>
       </div>
     </div>
   );

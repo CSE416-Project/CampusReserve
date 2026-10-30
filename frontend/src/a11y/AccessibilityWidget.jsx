@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { PROFILES, EMPTY_STATE, loadState, saveState, effective, isDefault, applySettings } from './settings.js';
 import useDialog from './useDialog.js';
+import * as speech from './speech.js';
 
 const ZOOMS = [90, 100, 110, 125, 150, 175, 200];
 const LINE_HEIGHTS = [0, 1.5, 1.8, 2.1];
 const LETTER_SPACINGS = [0, 0.04, 0.08, 0.12];
+const RATES = [0.75, 1, 1.25, 1.5, 2];
+const INTERACTIVE = "button, a, input, select, textarea, [role='switch'], [role='button']";
 const SWATCHES = [
   ["#1B2A4A", "Navy"], ["#000000", "Black"], ["#FFFFFF", "White"], ["#FFF8DC", "Cream"],
   ["#1F5FD1", "Blue"], ["#13795B", "Green"], ["#B8321F", "Red"], ["#6B3FA0", "Purple"],
@@ -174,6 +177,70 @@ export default function AccessibilityWidget() {
   };
   const changed = !isDefault(state);
 
+  // ---- Read aloud ----------------------------------------------------------
+  const [talk, setTalk] = useState({ speaking:false, paused:false });
+  const [voiceList, setVoiceList] = useState([]);
+  const lastSelection = useRef("");
+  useEffect(() => speech.subscribe(setTalk), []);
+  useEffect(() => speech.setOptions({ rate: s.speechRate, voice: s.voice }), [s.speechRate, s.voice]);
+  useEffect(() => {
+    if (!speech.supported) return;
+    const load = () => setVoiceList(speech.voices());
+    load();
+    speechSynthesis.addEventListener("voiceschanged", load);
+    return () => { speechSynthesis.removeEventListener("voiceschanged", load); speech.stop(); };
+  }, []);
+  // Remember the last text selected on the page, since opening the panel can clear it.
+  useEffect(() => {
+    const onSel = () => {
+      const sel = window.getSelection();
+      const text = sel ? sel.toString().trim() : "";
+      if (text && !sel.anchorNode?.parentElement?.closest("#a11y-root")) lastSelection.current = text;
+    };
+    document.addEventListener("selectionchange", onSel);
+    return () => document.removeEventListener("selectionchange", onSel);
+  }, []);
+  // Click to read: clicking text reads its paragraph; clicking a control reads what it is.
+  useEffect(() => {
+    if (!s.readOnClick || !speech.supported) return;
+    const onClick = e => {
+      if (e.target.closest("#a11y-root")) return;
+      const control = e.target.closest(INTERACTIVE);
+      if (control) { speech.speakText(speech.describe(control), control); return; }
+      const block = speech.blockOf(e.target);
+      const text = block?.innerText?.trim();
+      if (text) speech.speakText(text.slice(0, 2000), block);
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [s.readOnClick]);
+  // Read what has focus: speaks each control as you Tab to it.
+  useEffect(() => {
+    if (!s.speakFocus || !speech.supported) return;
+    const onFocus = e => { const t = speech.describe(e.target); if (t) speech.speakText(t); };
+    document.addEventListener("focusin", onFocus);
+    return () => document.removeEventListener("focusin", onFocus);
+  }, [s.speakFocus]);
+  const readPage = () => { setOpen(false); setTimeout(() => speech.speak(speech.pageBlocks()), 0); };
+  const readSelection = () => {
+    const sel = window.getSelection()?.toString().trim() || lastSelection.current;
+    if (sel) speech.speakText(sel);
+    else speech.speakText("Select some text on the page first, then choose Read selected text.");
+  };
+  // Alt+R (Option+R on a Mac): read the selection or the page, or stop if already reading.
+  useEffect(() => {
+    if (!speech.supported) return;
+    const onKey = e => {
+      if (!(e.altKey && e.code === "KeyR")) return;
+      e.preventDefault();
+      if (talk.speaking) { speech.stop(); return; }
+      const sel = window.getSelection()?.toString().trim();
+      if (sel) speech.speakText(sel); else speech.speak(speech.pageBlocks());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [talk.speaking]);
+
   return (
     <>
       <ReadingAids guide={s.readingGuide} mask={s.readingMask} />
@@ -187,6 +254,19 @@ export default function AccessibilityWidget() {
         {changed && <span aria-hidden="true" style={{ position:"absolute", top:-2, right:-2, width:16, height:16, borderRadius:999,
           background:"#FFC93C", border:"2px solid #1B2A4A" }} />}
       </button>
+
+      {talk.speaking && !open && (
+        <div role="region" aria-label="Read aloud controls"
+          style={{ position:"fixed", left:88, bottom:27, zIndex:1000, display:"flex", alignItems:"center", gap:8, padding:"6px 8px 6px 14px",
+            background:"var(--card)", color:"var(--ink)", border:"2px solid var(--ink)", borderRadius:999, boxShadow:"var(--shadow)",
+            fontFamily:"'DM Sans', system-ui, sans-serif", fontSize:14, fontWeight:700 }}>
+          <span aria-live="polite">{talk.paused ? "Paused" : "Reading aloud…"}</span>
+          {talk.paused
+            ? <button onClick={speech.resume} style={S.small}>Resume</button>
+            : <button onClick={speech.pause} style={S.small}>Pause</button>}
+          <button onClick={speech.stop} style={S.small}>Stop</button>
+        </div>
+      )}
 
       {open && (
         <div ref={panel} id="a11y-panel" role="dialog" aria-modal="true" aria-labelledby="a11y-title" tabIndex={-1}
@@ -207,6 +287,43 @@ export default function AccessibilityWidget() {
             {Object.entries(PROFILES).map(([id, p]) => (
               <Switch key={id} label={p.label} note={p.note} checked={state.profiles.includes(id)} onChange={on => toggleProfile(id, on)} />
             ))}
+          </div>
+
+          <div style={S.section}>
+            <h3 style={S.h}>Read aloud</h3>
+            {!speech.supported ? (
+              <div style={S.note}>This browser can't read text aloud. Try Chrome, Edge, Safari or Firefox.</div>
+            ) : <>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6, padding:"4px 0 8px" }}>
+                {talk.speaking ? <>
+                  {talk.paused
+                    ? <button onClick={speech.resume} style={{ ...S.small, background:"var(--blue)" }}>Resume</button>
+                    : <button onClick={speech.pause} style={{ ...S.small, background:"var(--blue)" }}>Pause</button>}
+                  <button onClick={speech.stop} style={S.small}>Stop</button>
+                </> : <>
+                  <button onClick={readPage} style={{ ...S.small, background:"var(--blue)" }}>Read this page</button>
+                  <button onMouseDown={e => e.preventDefault()} onClick={readSelection} style={S.small}>Read selected text</button>
+                </>}
+              </div>
+              <Switch label="Click to read" note="Click any text or button to hear it" checked={s.readOnClick} onChange={v => set("readOnClick", v)} />
+              <Switch label="Read what has focus" note="Speaks each button and field as you Tab to it" checked={s.speakFocus} onChange={v => set("speakFocus", v)} />
+              <Stepper label="Reading speed" options={RATES} value={s.speechRate} onChange={v => set("speechRate", v)} format={v => `${v}×`} />
+              {voiceList.length > 1 && (
+                <label style={{ display:"block", padding:"6px 0" }}>
+                  <span style={S.label}>Voice</span>
+                  <select value={s.voice} onChange={e => set("voice", e.target.value)}
+                    style={{ display:"block", width:"100%", marginTop:6, padding:"8px 10px", fontSize:14.5, borderRadius:8,
+                      border:"2px solid var(--ink)", background:"var(--paper)" }}>
+                    <option value="">Browser default</option>
+                    {voiceList.map(v => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
+                  </select>
+                </label>
+              )}
+              <div style={{ ...S.note, marginTop:6 }}>
+                Blind or low-vision and need everything read? Your device's screen reader works with this site:
+                VoiceOver (Mac: <kbd>Cmd</kbd>+<kbd>F5</kbd>), NVDA (free for Windows), or TalkBack on Android.
+              </div>
+            </>}
           </div>
 
           <div style={S.section}>
@@ -254,7 +371,8 @@ export default function AccessibilityWidget() {
           </div>
 
           <div style={{ ...S.section, ...S.note }}>
-            Tip: press <kbd>Alt</kbd>+<kbd>A</kbd> (<kbd>Option</kbd>+<kbd>A</kbd> on a Mac) to open this panel. Settings are saved in this browser.
+            Shortcuts: <kbd>Alt</kbd>+<kbd>A</kbd> opens this panel, <kbd>Alt</kbd>+<kbd>R</kbd> reads the page or selected text (and stops).
+            On a Mac, use <kbd>Option</kbd> instead of <kbd>Alt</kbd>. Settings are saved in this browser.
           </div>
         </div>
       )}
