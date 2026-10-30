@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { ROOMS, ALL_FEATURES, BUILDINGS, TYPES, STATUS } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
+import LoadingScreen from '../components/LoadingScreen.jsx';
 import Feature from '../components/Feature.jsx';
 import RoomPhoto from '../components/RoomPhoto.jsx';
 
@@ -85,7 +86,7 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
         </aside>
 
         <div style={{ flex:1, minWidth:280, display:"grid", gap:14 }}>
-          {loading && <div style={{ textAlign:"center", padding:"30px", color:"var(--ink-faint)" }}>Loading spaces from 25Live…</div>}
+          {loading && <LoadingScreen inline label="Loading spaces from 25Live…" />}
           {!loading && filtered.length===0 && <div style={{ textAlign:"center", padding:"50px 20px", color:"var(--ink-faint)",
             background:"var(--card)", borderRadius:14, border:"2px dashed var(--ink-faint)" }}>No spaces match those filters.</div>}
           {!loading && filtered.length>0 && (

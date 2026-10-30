@@ -24,7 +24,7 @@ function adaptScheduleItem(it) {
 }
 
 export default function RoomDetail({ room, onBack, onBook }) {
-  const notes = roomNotes(room);
+  const notes = room.live ? { instructions: room.instructions || "", comments: [] } : roomNotes(room);
   const [comments, setComments] = useState(notes.comments);
   const [draft, setDraft] = useState("");
 
@@ -93,10 +93,13 @@ export default function RoomDetail({ room, onBack, onBook }) {
             {room.features.map(f=><Feature key={f}>{f}</Feature>)}
           </div>
 
+          {notes.instructions && (<>
           <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>Instructions</div>
           <div style={{ fontSize:18, color:"var(--ink-soft)", background:"var(--paper)", padding:"18px 20px",
-            borderRadius:14, marginBottom:28, lineHeight:1.65 }}>{notes.instructions}</div>
+            borderRadius:14, marginBottom:28, lineHeight:1.65, whiteSpace:"pre-line" }}>{notes.instructions}</div>
+          </>)}
 
+          {!room.live && (<>
           <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>Comments from other clubs</div>
           <div style={{ display:"grid", gap:8, marginBottom:12 }}>
             {comments.map((c,i)=>(
@@ -112,6 +115,7 @@ export default function RoomDetail({ room, onBack, onBook }) {
               style={{ padding:"12px 20px", borderRadius:8, fontSize:18, fontWeight:600, color:"var(--ink)",
               background: draft.trim()?"var(--blue)":"var(--line-soft)" }}>Post</button>
           </div>
+          </>)}
         </div>
 
         <div>

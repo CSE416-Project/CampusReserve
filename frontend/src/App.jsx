@@ -19,6 +19,7 @@ import CreateAccount from './pages/CreateAccount.jsx';
 import Verifications from './pages/Verifications.jsx';
 import { setKnownClubs } from './components/OrgLink.jsx';
 import * as api from './api.js';
+import LoadingScreen from './components/LoadingScreen.jsx';
 import Analytics from './pages/Analytics.jsx';
 
 const D = getDays(3);
@@ -35,19 +36,20 @@ export default function App() {
   const [profiles,setProfiles]=useState(PROFILES);
   const [openRoom,setOpenRoom]=useState(null);
 
-  const [requests,setRequests]=useState([
+  const [requests,setRequests]=useState(api.LIVE ? [] : [
     { id:1, room:ROOMS[1], org:"Dance Collective", date:D[1].label, time:"12:00", status:"pending" },
     { id:2, room:ROOMS[0], org:"Robotics Club", date:D[2].label, time:"18:00", status:"approved" },
     { id:3, room:ROOMS[2], org:"Tech Club", date:D[1].label, time:"16:00", status:"approved" },
     { id:4, room:ROOMS[4], org:"Media Club", date:D[2].label, time:"14:00", status:"approved" },
   ]);
   // ---- live mode (FastAPI server) ----
-  const [rooms,setRooms]=useState(ROOMS);
+  const [dataLoading,setDataLoading]=useState(false);   // true while a live login loads its first data
+  const [rooms,setRooms]=useState(api.LIVE ? [] : ROOMS);
   const [roomsLoading,setRoomsLoading]=useState(false);
   const [apiError,setApiError]=useState("");
 
   // clubs: mock data by default; the database's organizations in live mode
-  const [clubs,setClubs]=useState(() => CLUBS.map(c => ({ ...c, count:c.eboard.length })));
+  const [clubs,setClubs]=useState(() => api.LIVE ? [] : CLUBS.map(c => ({ ...c, count:c.eboard.length })));
   const [clubsLoading,setClubsLoading]=useState(false);
   setKnownClubs(clubs.map(c => c.name));
   const loadClubs = async () => {
@@ -57,10 +59,10 @@ export default function App() {
   };
 
   // memberships: this leader's clubs and whether an admin has verified them
-  const [memberships,setMemberships]=useState(() => CLUBS.flatMap(c => c.eboard.filter(m => m.email === PROFILES.leader.email)
+  const [memberships,setMemberships]=useState(() => api.LIVE ? [] : CLUBS.flatMap(c => c.eboard.filter(m => m.email === PROFILES.leader.email)
     .map(m => ({ orgId:null, name:c.name, position:m.title, verified:true }))));
   // admin: membership requests waiting for verification
-  const [verifs,setVerifs]=useState([
+  const [verifs,setVerifs]=useState(api.LIVE ? [] : [
     { id:"v1", userName:"Priya Shah", email:"priya.shah@stonybrook.edu", orgName:"Debate Society", position:"Treasurer" },
     { id:"v2", userName:"Marcus Lee", email:"marcus.lee@stonybrook.edu", orgName:"Media Club", position:"Vice President" },
   ]);
@@ -118,6 +120,7 @@ export default function App() {
     } catch (e) { setApiError(e.message); }
   };
   const loadLive = async (r, user) => {
+    setDataLoading(true); setRooms([]); setClubs([]);
     setRequests([]); setRoomsLoading(true); setApiError("");
     setMemberships([]); setVerifs([]); setMemLoaded(r !== "leader"); loadClubs();
     setProfiles(p => ({ ...p, [r]: { ...p[r], id:user.id, name:user.name, email:user.email } }));
@@ -130,6 +133,7 @@ export default function App() {
     if (r==="leader") await loadMemberships();
     if (r==="admin") await loadVerifs();
     await loadRequests(r, roomList);
+    setDataLoading(false);
   };
 
   // returns the picks that failed ([] when every day was requested)
@@ -341,7 +345,7 @@ export default function App() {
     }
   }, [booting, bootError, signedIn, path, role]); // eslint-disable-line
 
-  if (booting) return <div role="status" style={{ minHeight:"100vh", display:"grid", placeItems:"center", fontWeight:600, color:"var(--ink-soft)" }}>Loading…</div>;
+  if (booting) return <LoadingScreen />;
   if (bootError) return (
     <div role="alert" style={{ minHeight:"100vh", display:"grid", placeItems:"center", textAlign:"center", padding:24 }}>
       <div><p style={{ fontWeight:600, color:"var(--red)" }}>{bootError}</p>
@@ -357,7 +361,7 @@ export default function App() {
         onProfile={()=>goPage("profile")} unread={unreadTotal} verifCount={verifs.length} name={profiles[role].name} onLogout={logout} />
       {apiError && <div role="alert" style={{ maxWidth:900, margin:"14px auto 0", padding:"10px 16px", background:"var(--red-wash)", color:"var(--red)", border:"2px solid var(--red)", borderRadius:10, fontWeight:600, fontSize:14.5 }}>{apiError}</div>}
 
-      {role==="leader" && memLoaded && leaderOrgs.length===0 && page!=="profile" && (
+      {role==="leader" && !dataLoading && memLoaded && leaderOrgs.length===0 && page!=="profile" && (
         <div role="status" style={{ maxWidth:900, margin:"14px auto 0", padding:"10px 16px", background:"var(--amber-wash)", border:"2px solid var(--amber)",
           borderRadius:10, fontWeight:600, fontSize:14.5, color:"var(--ink)", display:"flex", gap:12, alignItems:"center", flexWrap:"wrap" }}>
           <span style={{ flex:1, minWidth:200 }}>Your account is not verified yet, so you can't request bookings.</span>
@@ -375,10 +379,11 @@ export default function App() {
             </main>
       ) : (
         <>
+          {dataLoading && ["requests","approvals","verifications"].includes(page) && <LoadingScreen inline label="Loading your data…" />}
           {role==="leader" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} onBook={setOpenRoom} />}
-          {role==="leader" && page==="requests" && <MyRequests onCancel={cancelRequest} clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
-          {role==="admin" && page==="approvals" && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
-          {role==="admin" && page==="verifications" && <Verifications items={verifs} onApprove={approveVerif} onReject={rejectVerif} onOpenClub={openClub} />}
+          {role==="leader" && page==="requests" && !dataLoading && <MyRequests onCancel={cancelRequest} clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
+          {role==="admin" && page==="approvals" && !dataLoading && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
+          {role==="admin" && page==="verifications" && !dataLoading && <Verifications items={verifs} onApprove={approveVerif} onReject={rejectVerif} onOpenClub={openClub} />}
           {role==="admin" && page==="rooms" && <RoomsAdmin rooms={rooms} requests={requests} loading={roomsLoading} />}
           {role==="admin" && page==="analytics" && <Analytics />}
           {role==="venue" && page==="rooms" && <VenueRooms requests={requests} onOpenClub={openClub} />}
