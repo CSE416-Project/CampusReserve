@@ -1,65 +1,79 @@
-"""Sending email. In development it just logs messages.
+"""Sending email through Brevo's HTTP API.
 
-Settings (environment variables):
-    EMAIL_MODE      "log" (default) prints emails to the server log;
-                    "smtp" sends them for real
-    SMTP_HOST       e.g. smtp.gmail.com
-    SMTP_PORT       default 587
-    SMTP_USERNAME / SMTP_PASSWORD
-    SMTP_STARTTLS   "1" (default) or "0"
-    EMAIL_FROM      e.g. "CampusReserve <noreply@example.edu>"
-    APP_URL         link included in emails, default http://localhost:5173
+Render's free plan blocks outgoing SMTP (ports 25/465/587), so email goes out over
+HTTPS instead. Brevo's free plan allows 300 emails a day.
 
-Sending happens on a background thread so a slow mail server never delays
-an API response.
+Environment variables (set them on the API service in Render):
+    BREVO_API_KEY      API key from Brevo (SMTP & API > API keys). No key = email is off.
+    EMAIL_FROM         The sender address you verified in Brevo (Senders, domains & IPs).
+    EMAIL_FROM_NAME    Optional, defaults to "CampusReserve".
+    EMAIL_REDIRECT_TO  Optional, for testing: every email goes to this address instead
+                       of the real recipient, so demo accounts never email real people.
+
+Uses only the standard library, so nothing new goes in requirements.txt.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-import smtplib
-import threading
-from email.message import EmailMessage
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger("campusreserve.email")
 
+BREVO_URL = "https://api.brevo.com/v3/smtp/email"
+TIMEOUT_SECONDS = 10
 
-def app_url() -> str:
-    return os.getenv("APP_URL", "http://localhost:5173").rstrip("/")
-
-
-def _send_smtp(to: str, subject: str, body: str) -> None:
-    msg = EmailMessage()
-    msg["From"] = os.getenv("EMAIL_FROM", "CampusReserve <noreply@localhost>")
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.set_content(body)
-    host = os.environ["SMTP_HOST"]
-    port = int(os.getenv("SMTP_PORT", "587"))
-    with smtplib.SMTP(host, port, timeout=20) as smtp:
-        if os.getenv("SMTP_STARTTLS", "1") == "1":
-            smtp.starttls()
-        user = os.getenv("SMTP_USERNAME")
-        if user:
-            smtp.login(user, os.getenv("SMTP_PASSWORD", ""))
-        smtp.send_message(msg)
+# A couple of background threads, so a slow email never slows down an API response.
+_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="email")
 
 
-def _deliver(to: str, subject: str, body: str) -> None:
-    mode = os.getenv("EMAIL_MODE", "log").lower()
+def email_enabled() -> bool:
+    return bool(os.environ.get("BREVO_API_KEY") and os.environ.get("EMAIL_FROM"))
+
+
+def send_email(to_email: str, to_name: str | None, subject: str, html: str, text: str) -> bool:
+    """Sends one email right away. Returns True if Brevo accepted it. Never raises."""
+    if not email_enabled():
+        return False
+    redirect = os.environ.get("EMAIL_REDIRECT_TO", "").strip()
+    if redirect:
+        subject = f"[to {to_email}] {subject}"
+        to_email, to_name = redirect, None
+    recipient = {"email": to_email}
+    if to_name:
+        recipient["name"] = to_name
+    body = {
+        "sender": {"email": os.environ["EMAIL_FROM"], "name": os.environ.get("EMAIL_FROM_NAME", "CampusReserve")},
+        "to": [recipient],
+        "subject": subject,
+        "htmlContent": html,
+        "textContent": text,
+    }
+    req = urllib.request.Request(
+        os.environ.get("BREVO_API_URL", BREVO_URL),
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={"api-key": os.environ["BREVO_API_KEY"], "content-type": "application/json", "accept": "application/json"},
+    )
     try:
-        if mode == "smtp":
-            _send_smtp(to, subject, body)
-            logger.info("Emailed %s: %s", to, subject)
-        else:
-            logger.info("EMAIL (not sent, EMAIL_MODE=%s) to %s: %s\n%s", mode, to, subject, body)
-    except Exception:  # never let email problems break the app
-        logger.exception("Failed to email %s: %s", to, subject)
+        with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
+            ok = 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        log.warning("Email to %s failed: HTTP %s %s", to_email, e.code, e.read()[:300])
+        return False
+    except Exception as e:  # network problems, timeouts
+        log.warning("Email to %s failed: %s", to_email, e)
+        return False
+    if ok:
+        log.info("Email sent to %s: %s", to_email, subject)
+    return ok
 
 
-def send_email(to: str, subject: str, body: str) -> None:
-    """Send in the background. Returns immediately."""
-    if not to:
-        return
-    threading.Thread(target=_deliver, args=(to, subject, body), daemon=True).start()
+def send_email_later(*args, **kwargs) -> None:
+    """Queues send_email on a background thread and returns immediately."""
+    if email_enabled():
+        _pool.submit(send_email, *args, **kwargs)
