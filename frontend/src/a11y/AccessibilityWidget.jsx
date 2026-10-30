@@ -263,6 +263,7 @@ export default function AccessibilityWidget() {
       </button>
 
       {talk.speaking && !open && (
+
         <div role="region" aria-label="Read aloud controls" className="a11y-talkbar"
           style={{ position:"fixed", left:88, bottom:27, zIndex:1000, display:"flex", alignItems:"center", gap:8, padding:"6px 8px 6px 14px",
             background:"var(--card)", color:"var(--ink)", border:"2px solid var(--ink)", borderRadius:999, boxShadow:"var(--shadow)",
@@ -385,5 +386,5 @@ export default function AccessibilityWidget() {
       )}
     </>
   );
-}
 
+}
