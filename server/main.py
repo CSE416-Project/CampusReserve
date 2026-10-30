@@ -10,7 +10,6 @@ from routers import admin, analytics, auth, me, forum, messages, notifications, 
 from services import live25
 from services.request_flow import run_waitlist_loop
 from services.usage import UsageMiddleware, flush, flush_loop
-import services.notification_email  # noqa: F401  (emails a copy of each notification)
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)  # don't log every 25Live request
