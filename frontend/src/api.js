@@ -4,11 +4,11 @@ const BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 export const LIVE = !!BASE;
 
 let token = null;
-try { token = sessionStorage.getItem("cr_token"); } catch { /* storage unavailable */ }
+try { token = localStorage.getItem("cr_token"); } catch { /* storage unavailable */ }
 export const hasToken = () => !!token;
 export function setToken(t) {
   token = t;
-  try { t ? sessionStorage.setItem("cr_token", t) : sessionStorage.removeItem("cr_token"); } catch { /* ignore */ }
+  try { t ? localStorage.setItem("cr_token", t) : localStorage.removeItem("cr_token"); } catch { /* ignore */ }
 }
 
 function errorMessage(data, status) {
@@ -67,6 +67,7 @@ export const createRequest = body => call("/requests", { method: "POST", json: b
 export const approve = id => call(`/requests/${id}/approve`, { method: "POST", json: {} });
 export const cancelRequest = id => call(`/requests/${id}/cancel`, { method: "POST", json: {} });
 export const deny = (id, reason) => call(`/requests/${id}/deny`, { method: "POST", json: { reason } });
+export const analytics = days => call(`/admin/analytics?days=${days}`);
 
 // ---- waitlist ---------------------------------------------------------
 export const roomWaitlist = id => call(`/waitlist/rooms/${encodeURIComponent(id)}`);
@@ -85,6 +86,7 @@ export function adaptRoom(r) {
     closed: r.club_bookable === false,
     note: r.pending_requests ? `${r.pending_requests} pending request${r.pending_requests === 1 ? "" : "s"}` : "Open for requests",
     slots: SLOTS, live: true,
+    instructions: [r.instructions, r.comments].filter(Boolean).join("\n\n"),
   };
 }
 
@@ -96,10 +98,10 @@ export const dayKeyOf = d => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.
 export function adaptRequest(r, roomsById = {}) {
   const s = new Date(r.start_time);
   const room = roomsById[r.room_id] || { id: r.room_id, name: r.room_name || "Room", building: "" };
-  const status = r.status === "waitlisted" ? "pending" : r.status;
+  const status = r.status;
   return { id: r.id, room, org: r.organization_name || "", date: `${DOW[s.getDay()]}, ${MON[s.getMonth()]} ${s.getDate()}`,
     time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason,
-    event: r.event_name };
+    event: r.event_name, position: r.waitlist_position };
 }
 
 // Busy intervals per day from schedule items: { "2026-10-21": [[startMin, endMin, "booked"|"requested"], ...] }

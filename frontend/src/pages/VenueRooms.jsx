@@ -5,7 +5,7 @@ import Pill from '../components/Pill.jsx';
 export default function VenueRooms({ requests, onOpenClub }) {
   const rooms = ROOMS.filter(r => VENUE_HOST_BUILDINGS.includes(r.building));
   return (
-    <main style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
       <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>Rooms you manage</h1>
       <div style={{ display:"grid", gap:14 }}>
         {rooms.map(r => {
@@ -24,7 +24,7 @@ export default function VenueRooms({ requests, onOpenClub }) {
               ) : (
                 <div style={{ display:"grid", gap:6 }}>
                   {bookings.map(b => (
-                    <div key={b.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"var(--paper)",
+                    <div key={b.id} className="row-wrap" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"var(--paper)",
                       borderRadius:8, padding:"8px 12px" }}>
                       <span style={{ fontSize:14 }}><b><OrgLink name={b.org} onOpen={onOpenClub} /></b> · {b.date} · {b.time}</span>
                       <Pill status={b.status} small />

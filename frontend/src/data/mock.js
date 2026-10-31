@@ -155,6 +155,7 @@ export const STATUS = {
   available:{ label:"Available", fg:"var(--green)", bg:"var(--green-wash)" },
   requested:{ label:"Requested by another club", fg:"var(--amber)", bg:"var(--amber-wash)" },
   unavailable:{ label:"Not bookable", fg:"var(--slate)", bg:"var(--slate-wash)" },
+  waitlisted:{ label:"On waitlist", fg:"var(--link)", bg:"var(--blue-wash)" },
   pending:{ label:"Pending review", fg:"var(--amber)", bg:"var(--amber-wash)" },
   approved:{ label:"Approved", fg:"var(--green)", bg:"var(--green-wash)" },
   denied:{ label:"Denied", fg:"var(--red)", bg:"var(--red-wash)" },
@@ -184,7 +185,7 @@ export function slotState(room, dateKey, slot) {
 
 export const VENUE_HOST_BUILDINGS = ["Student Activities Center","Staller Center"];
 
-export const SB_ENGAGED_URL = "https://sbengaged.stonybrook.edu/submitter/form/start/event-fulfillment";
+export const SB_ENGAGED_URL = "https://sbengaged.stonybrook.edu/";
 
 const ROOM_NOTES = {
   default: {

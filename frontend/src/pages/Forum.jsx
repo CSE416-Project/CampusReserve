@@ -15,7 +15,7 @@ export default function Forum({ posts, onPost, onReply, clubs = [], loading = fa
   const run = async fn => { setBusy(true); setErr(""); try { await fn(); } catch (e) { setErr(e.message); } setBusy(false); };
   const canPost = title.trim() && body.trim() && !busy;
   return (
-    <main style={{ maxWidth:760, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:760, margin:"0 auto", padding:"26px 24px 60px" }}>
       <h1 style={{ fontSize:30, fontWeight:800, marginBottom:18 }}>Collaboration forum</h1>
 
       <div style={{ background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, padding:16, marginBottom:20 }}>
@@ -67,7 +67,7 @@ export default function Forum({ posts, onPost, onReply, clubs = [], loading = fa
             )}
             <div style={{ display:"flex", gap:8 }}>
               <input value={replyDraft[p.id]||""} onChange={e=>setReplyDraft(d=>({...d,[p.id]:e.target.value}))}
-                placeholder="Reply…" style={{ ...box, flex:1, fontSize:15.6, padding:"8px 11px" }} />
+                placeholder="Reply…" aria-label="Write a reply" style={{ ...box, flex:1, minWidth:0, fontSize:15.6, padding:"8px 11px" }} />
               <button disabled={busy || !(replyDraft[p.id]||"").trim()} onClick={()=>run(async()=>{ await onReply(p.id,replyDraft[p.id].trim(),postAs || ""); setReplyDraft(d=>({...d,[p.id]:""})); })}
                 style={{ padding:"8px 14px", borderRadius:8, fontSize:15.6, fontWeight:600, color:"var(--link)" }}>Reply</button>
             </div>
