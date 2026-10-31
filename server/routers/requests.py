@@ -256,7 +256,8 @@ async def check_request(
     result = await check_booking(db, room=room, space_id=space_id, window=body.window(),
                                  attendance=body.expected_attendance,
                                  is_admin=has_scope(user, "handle:requests"),
-                                 fallback_rules=fallback)
+                                 fallback_rules=fallback,
+                                 pending_blocks=not has_scope(user, "handle:requests"))
     return CheckOut(**result.to_dict())
 
 
@@ -279,7 +280,8 @@ async def create_request(
     window = body.window()
     is_admin = has_scope(user, "handle:requests")
     result = await check_booking(db, room=room, space_id=space_id, window=window,
-                                 attendance=body.expected_attendance, is_admin=is_admin)
+                                 attendance=body.expected_attendance, is_admin=is_admin,
+                                 pending_blocks=not is_admin)
 
     waitlisted = False
     if not result.ok:

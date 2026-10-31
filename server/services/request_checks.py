@@ -105,6 +105,7 @@ def evaluate(
     pending_overlaps: list[dict] = (),
     attendance: int | None = None,
     is_admin: bool = False,
+    pending_blocks: bool = False,
 ) -> CheckResult:
     """Check one booking against every rule.
 
@@ -114,6 +115,8 @@ def evaluate(
     closures:          our RoomClosures overlapping it, as {"reason", "start", "end"}
     pending_overlaps:  our pending requests overlapping it (a warning, not a block)
     is_admin:          admins may book rooms that aren't club-bookable
+    pending_blocks:    when True (a club submitting a new request), another
+                       organization's pending request blocks the slot, but can be waitlisted
     """
     r = CheckResult()
     add = r.problems.append
@@ -167,7 +170,12 @@ def evaluate(
     for c in closures:
         add(Problem("room_closure",
                     f"Closed from {_fmt(c['start'])} to {_fmt(c['end'])}: {c['reason']}"))
-    if pending_overlaps:
+    if pending_overlaps and pending_blocks:
+        add(Problem("requested_by_other",
+                    "Another organization has already requested this time and is waiting "
+                    "for approval. You can join the waitlist instead.",
+                    waitlistable=True))
+    elif pending_overlaps:
         n = len(pending_overlaps)
         add(Problem("competing_requests",
                     f"{n} other pending request{'s' if n != 1 else ''} overlap{'' if n != 1 else 's'} "
