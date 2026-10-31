@@ -28,11 +28,11 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
   },[search]);
 
   return (
-    <main className="page" style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:1000, margin:"0 auto", padding:"26px 24px 30px" }}>
       <h1 className={showList ? undefined : "sr-only"} style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>Messages</h1>
       <div className="msg-layout" style={{ display:"flex", gap:18, alignItems:"flex-start", flexWrap:"wrap" }}>
-        {showList && <div className="msg-list" style={{ width:270, flexShrink:0, background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, overflow:"hidden" }}>
-          <div style={{ padding:12, borderBottom:"1px solid var(--line)", position:"relative" }}>
+        {showList && <div className="msg-list" style={{ width:270, flexShrink:0, background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+          <div style={{ padding:12, borderBottom:"1px solid var(--line)", position:"relative", flexShrink:0 }}>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search people by name…"
               style={{ width:"100%", padding:"8px 11px", fontSize:14, border:"2px solid var(--ink)", borderRadius:8,
               background:"var(--paper)", outline:"none" }} />
@@ -54,6 +54,7 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
               </div>
             )}
           </div>
+          <div className="msg-items" style={{ flex:1, minHeight:0, overflowY:"auto" }}>
           {mine.length===0 ? (
             <div style={{ padding:16, fontSize:14, color:"var(--ink-faint)" }}>No conversations yet — search above to start one.</div>
           ) : mine.map(t => (
@@ -68,6 +69,7 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
               {t.subject && <div style={{ fontSize:13, color:"var(--ink-faint)", marginTop:2 }}>{t.subject}</div>}
             </button>
           ))}
+          </div>
         </div>}
         {showPane && <div className="msg-pane" style={{ flex:1, minWidth:280, background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14,
           display:"flex", flexDirection:"column", minHeight:360 }}>
@@ -75,11 +77,11 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
             <div style={{ margin:"auto", color:"var(--ink-faint)", fontSize:14.5, padding:30, textAlign:"center" }}>Pick a conversation, or search for someone to message.</div>
           ) : (
             <>
-              <div style={{ padding:"14px 18px", borderBottom:"1px solid var(--line)", fontWeight:700, fontSize:15, display:"flex", alignItems:"center" }}>
+              <div style={{ padding:"14px 18px", borderBottom:"1px solid var(--line)", fontWeight:700, fontSize:15, display:"flex", alignItems:"center", flexShrink:0 }}>
                 <button className="msg-back" onClick={()=>setActiveId(null)} aria-label="Back to conversations">‹</button>
                 <span style={{ minWidth:0 }}>{other(active)}{active.subject && <span style={{ fontWeight:500, color:"var(--ink-faint)", fontSize:13 }}> · {active.subject}</span>}</span>
               </div>
-              <div ref={scroller} style={{ flex:1, padding:18, overflowY:"auto", display:"flex", flexDirection:"column", gap:10 }}>
+              <div ref={scroller} style={{ flex:1, minHeight:0, padding:18, overflowY:"auto", overscrollBehavior:"contain", display:"flex", flexDirection:"column", gap:10 }}>
                 {active.messages.length===0 && <div style={{ margin:"auto", color:"var(--ink-faint)", fontSize:14 }}>Say hello to start the conversation.</div>}
                 {active.messages.map((m,i) => {
                   const mine2 = m.fromId===selfId;
@@ -92,7 +94,7 @@ export default function Messages({ threads, onSend, onStartChat, activeId, setAc
                   );
                 })}
               </div>
-              <div style={{ padding:14, borderTop:"1px solid var(--line)", display:"flex", gap:8 }}>
+              <div style={{ padding:14, borderTop:"1px solid var(--line)", display:"flex", gap:8, flexShrink:0 }}>
                 <input value={draft} onChange={e=>setDraft(e.target.value)}
                   onKeyDown={e=>{ if(e.key==="Enter" && draft.trim()){ onSend(active.id,draft); setDraft(""); } }}
                   placeholder="Write a message…" aria-label="Write a message" style={{ flex:1, minWidth:0, padding:"10px 13px", fontSize:14.5,

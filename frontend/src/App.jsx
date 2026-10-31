@@ -391,7 +391,8 @@ export default function App() {
           {page==="clubs" && <Clubs clubs={clubs} loading={clubsLoading} onOpenClub={openClub} />}
           {page==="profile" && <Profile key={role} role={role} profile={profiles[role]} onOpenClub={openClub}
             onSave={patch=>setProfiles(p=>({ ...p, [role]:{ ...p[role], ...patch } }))}
-            memberships={memberships} membershipsLoaded={memLoaded} onSearchOrgs={searchOrgOptions} onJoin={joinOrg} />}
+            memberships={memberships} membershipsLoaded={memLoaded} onSearchOrgs={searchOrgOptions} onJoin={joinOrg}
+            onChangePassword={api.LIVE ? api.changePassword : undefined} />}
           {page==="messages" && <Messages threads={threads} onSend={sendMessage} onStartChat={startChat}
             activeId={activeThread} setActiveId={setActiveThread} selfId={selfId} onSearchPeople={searchPeople} unreadMap={unreadMap} />}
         </>

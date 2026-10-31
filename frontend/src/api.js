@@ -45,6 +45,8 @@ export async function login(email, password) {
   return call("/auth/me");
 }
 export const me = () => call("/auth/me");
+export const changePassword = (current, next) =>
+  call("/auth/change-password", { method: "POST", json: { current_password: current, new_password: next } });
 export const register = (email, name, password) =>
   call("/auth/register", { method: "POST", json: { email: email.trim(), name: name.trim(), password } });
 export const searchOrgs = q => call("/organizations?search=" + encodeURIComponent(q));
@@ -59,6 +61,13 @@ export const adaptClub = o => ({ id:o.id, name:o.name, category:null, bio:o.desc
 export const rooms = () => call("/rooms");
 export const roomSchedule = (id, startKey, endKey) =>
   call(`/rooms/${encodeURIComponent(id)}/schedule?start=${startKey}&end=${endKey}`);
+
+// Rooms that are free for the whole window on one day. dateKey "YYYY-MM-DD", times "HH:MM" (24h).
+const to12 = v => { const [h, m] = v.split(":").map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+export const availableRooms = (dateKey, start, end) => {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  return call(`/rooms/available?year=${y}&month=${m}&day=${d}&start_time=${encodeURIComponent(to12(start))}&end_time=${encodeURIComponent(to12(end))}`);
+};
 
 // ---- requests ---------------------------------------------------------
 export const myRequests = () => call("/requests/mine");
@@ -101,7 +110,7 @@ export function adaptRequest(r, roomsById = {}) {
   const status = r.status;
   return { id: r.id, room, org: r.organization_name || "", date: `${DOW[s.getDay()]}, ${MON[s.getMonth()]} ${s.getDate()}`,
     time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason,
-    event: r.event_name, position: r.waitlist_position };
+    event: r.event_name, position: r.waitlist_position, startAt: s, endAt: new Date(r.end_time) };
 }
 
 // Busy intervals per day from schedule items: { "2026-10-21": [[startMin, endMin, "booked"|"requested"], ...] }
