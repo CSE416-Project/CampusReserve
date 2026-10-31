@@ -17,7 +17,7 @@ export default function ClubProfile({ name, clubs, requests, selfId, onBack, onM
   const eboard = club.live ? members : club.eboard;
   const upcoming = requests.filter(r => r.org === club.name && r.status === "approved");
   return (
-    <main style={{ maxWidth:900, margin:"0 auto", padding:"24px 24px 60px" }}>
+    <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"24px 24px 60px" }}>
       <button onClick={onBack} style={{ fontSize:14.5, fontWeight:600, color:"var(--link)", marginBottom:14 }}>‹ Back</button>
 
       <div style={{ display:"flex", gap:18, alignItems:"center", flexWrap:"wrap", marginBottom:22 }}>
@@ -39,7 +39,7 @@ export default function ClubProfile({ name, clubs, requests, selfId, onBack, onM
         </div>
       ) : (<>
       {!club.live && <div style={{ fontSize:14, color:"var(--ink-soft)", marginBottom:12 }}>One e-board member holds the club's account. Everyone listed gets an email when a booking is approved.</div>}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:12, marginBottom:26, marginTop: club.live ? 12 : 0 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(min(260px,100%),1fr))", gap:12, marginBottom:26, marginTop: club.live ? 12 : 0 }}>
         {eboard.map(m => (
           <div key={m.email} style={{ display:"flex", gap:12, alignItems:"center", background:"var(--card)", border:"2px solid var(--ink)",
             borderRadius:14, padding:"14px 16px" }}>
@@ -68,7 +68,7 @@ export default function ClubProfile({ name, clubs, requests, selfId, onBack, onM
       ) : (
         <div style={{ display:"grid", gap:10 }}>
           {upcoming.map(r => (
-            <div key={r.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"var(--card)",
+            <div key={r.id} className="row-wrap" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"var(--card)",
               border:"2px solid var(--ink)", borderRadius:10, padding:"12px 16px" }}>
               <div>
                 <div style={{ fontWeight:700, fontSize:15 }}>{r.room.name}</div>
