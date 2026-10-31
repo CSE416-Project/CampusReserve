@@ -105,4 +105,4 @@ html[data-a11y-read-on-click] #root { cursor: help; }  /* buttons and links keep
   position: fixed; left: 12px; top: -100px; z-index: 1000; padding: 10px 16px; border-radius: 10px;
   background: #FFC93C; color: #1B2A4A; font-weight: 700; border: 2px solid #1B2A4A; text-decoration: none;
 }
-.a11y-skip-link:focus { top: 12px; }
+.a11y-skip-link:focus-visible { top: 12px; }  /* keyboard only: not when the page moves focus in code */

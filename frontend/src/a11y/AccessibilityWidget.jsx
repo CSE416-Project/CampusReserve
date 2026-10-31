@@ -139,6 +139,13 @@ export default function AccessibilityWidget() {
 
   useEffect(() => { saveState(state); applySettings(s); }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
   useDialog(panel, { open, onClose: () => setOpen(false) });
+  // On phones and tablets the button sits in the top bar (Header.jsx), which talks to us with window events.
+  useEffect(() => {
+    const toggle = () => setOpen(o => !o);
+    window.addEventListener("cr:a11y-toggle", toggle);
+    return () => window.removeEventListener("cr:a11y-toggle", toggle);
+  }, []);
+  useEffect(() => { window.dispatchEvent(new CustomEvent("cr:a11y-state", { detail: { open } })); }, [open]);
 
   // Alt+A (Option+A on a Mac) opens and closes the panel from anywhere.
   useEffect(() => {
@@ -245,7 +252,7 @@ export default function AccessibilityWidget() {
     <>
       <ReadingAids guide={s.readingGuide} mask={s.readingMask} />
 
-      <button onClick={() => setOpen(o => !o)} aria-label="Accessibility settings" aria-expanded={open} aria-controls="a11y-panel"
+      <button className="a11y-fab" onClick={() => setOpen(o => !o)} aria-label="Accessibility settings" aria-expanded={open} aria-controls="a11y-panel"
         title="Accessibility settings (Alt+A)"
         style={{ position:"fixed", left:20, bottom:20, zIndex:1000, width:58, height:58, borderRadius:999,
           background:"#1F5FD1", color:"#FFFFFF", border:"3px solid #FFFFFF", boxShadow:"0 0 0 2px #1B2A4A, 3px 3px 0 2px #1B2A4A",
@@ -256,7 +263,8 @@ export default function AccessibilityWidget() {
       </button>
 
       {talk.speaking && !open && (
-        <div role="region" aria-label="Read aloud controls"
+
+        <div role="region" aria-label="Read aloud controls" className="a11y-talkbar"
           style={{ position:"fixed", left:88, bottom:27, zIndex:1000, display:"flex", alignItems:"center", gap:8, padding:"6px 8px 6px 14px",
             background:"var(--card)", color:"var(--ink)", border:"2px solid var(--ink)", borderRadius:999, boxShadow:"var(--shadow)",
             fontFamily:"'DM Sans', system-ui, sans-serif", fontSize:14, fontWeight:700 }}>
@@ -269,7 +277,7 @@ export default function AccessibilityWidget() {
       )}
 
       {open && (
-        <div ref={panel} id="a11y-panel" role="dialog" aria-modal="true" aria-labelledby="a11y-title" tabIndex={-1}
+        <div ref={panel} id="a11y-panel" className="a11y-panel" role="dialog" aria-modal="true" aria-labelledby="a11y-title" tabIndex={-1}
           style={{ position:"fixed", left:20, bottom:92, zIndex:1000, width:390, maxWidth:"calc(100vw - 40px)", maxHeight:"calc(100vh - 120px)",
             overflowY:"auto", background:"var(--card)", color:"var(--ink)", border:"3px solid var(--ink)", borderRadius:16,
             boxShadow:"var(--shadow-lift)", fontFamily:"'DM Sans', system-ui, sans-serif" }}>
@@ -378,4 +386,5 @@ export default function AccessibilityWidget() {
       )}
     </>
   );
+
 }

@@ -6,12 +6,12 @@ export const authLabel = { fontSize:14, fontWeight:600, color:"var(--ink-soft)",
 
 export default function AuthShell({ title, subtitle, children, footer }) {
   return (
-    <div style={{ minHeight:"100vh", display:"grid", placeItems:"center", padding:"32px 20px", background:"var(--paper)" }}>
+    <div style={{ minHeight:"100dvh", display:"grid", placeItems:"center", padding:"32px 16px", background:"var(--paper)" }}>
       <div style={{ width:"100%", maxWidth:440 }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:26 }}>
           <span style={{ fontFamily:"var(--display)", fontSize:28 }}>CampusReserve</span>
         </div>
-        <div style={{ background:"var(--card)", border:"2px solid var(--ink)", borderRadius:18, padding:"30px 30px 26px", boxShadow:"var(--shadow-lift)" }}>
+        <div className="auth-card" style={{ background:"var(--card)", border:"2px solid var(--ink)", borderRadius:18, padding:"30px 30px 26px", boxShadow:"var(--shadow-lift)" }}>
           <h1 style={{ fontSize:26, fontWeight:800, marginBottom:6 }}>{title}</h1>
           <p style={{ fontSize:15, color:"var(--ink-soft)" }}>{subtitle}</p>
           {children}
