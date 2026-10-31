@@ -3,7 +3,6 @@ import { slotState } from '../data/mock.js';
 import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf } from '../api.js';
 import Pill from '../components/Pill.jsx';
 import WaitlistOffer from '../components/WaitlistOffer.jsx';
-import useDialog from '../a11y/useDialog.js';
 
 const MIN = 360, MAX = 1410, STEP = 15; // bookable window: 6:00 AM to 11:30 PM
 const DOW = ["S","M","T","W","T","F","S"];
@@ -21,10 +20,12 @@ const navBtn = { width:34, height:34, borderRadius:8, border:"2px solid var(--in
 export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist, waitlistLine = [], orgs = [] }) {
   const todayKey = dayKeyOf(new Date());
   const now = new Date();
-  const [month, setMonth] = useState({ y: now.getFullYear(), m: now.getMonth() });
-  const [dates, setDates] = useState([]);              // selected day keys
-  const [start, setStart] = useState(18 * 60);
-  const [end, setEnd] = useState(19 * 60);
+  const pf = room?.prefill;   // date + time picked in Find a Space's "Available on" filter
+  const pfStart = pf ? fromHHMM(pf.from) : null, pfEnd = pf ? fromHHMM(pf.to) : null;
+  const [month, setMonth] = useState(pf ? { y: +pf.date.slice(0, 4), m: +pf.date.slice(5, 7) - 1 } : { y: now.getFullYear(), m: now.getMonth() });
+  const [dates, setDates] = useState(pf ? [pf.date] : []);   // selected day keys
+  const [start, setStart] = useState(pfStart != null ? clamp(pfStart, MIN, MAX) : 18 * 60);
+  const [end, setEnd] = useState(pfEnd != null ? clamp(pfEnd, MIN, MAX) : 19 * 60);
   const [org, setOrg] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(false);
@@ -35,9 +36,6 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const [live, setLive] = useState({});                // live busy intervals by day key
   const [schedErr, setSchedErr] = useState("");   // set when the room's schedule can't be loaded
   const loaded = useRef(new Set());
-  const panel = useRef(null);
-  // Keyboard and screen readers: focus moves into the drawer, Tab stays inside, Escape closes it.
-  useDialog(panel, { open: !!room, onClose });
 
   useEffect(() => {
     if (!done) return;
@@ -128,15 +126,14 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
   return (
     <>
-      <div onClick={onClose} aria-hidden="true" style={{ position:"fixed", inset:0, background:"rgba(27,42,74,.28)", zIndex:40 }} />
-      <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="booking-title" aria-describedby="booking-sub" tabIndex={-1}
-        style={{ position:"fixed", top:0, right:0, bottom:0, width:500, maxWidth:"94vw", background:"var(--card)",
+      <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(27,42,74,.28)", zIndex:40 }} />
+      <div style={{ position:"fixed", top:0, right:0, bottom:0, width:500, maxWidth:"94vw", background:"var(--card)",
         zIndex:50, boxShadow:"-8px 0 40px rgba(27,42,74,.18)", display:"flex", flexDirection:"column" }}>
         <div style={{ padding:"20px 22px", borderBottom:"1px solid var(--line)" }}>
           <Pill status={room.status} small />
-          <h2 id="booking-title" style={{ fontSize:24, fontWeight:800, margin:"10px 0 3px" }}>{room.name}</h2>
-          <div id="booking-sub" style={{ fontSize:15.6, color:"var(--ink-faint)" }}>{room.building} · Holds {room.cap}</div>
-          <button onClick={onClose} aria-label="Close booking" style={{ position:"absolute", top:18, right:20, width:30, height:30,
+          <h2 style={{ fontSize:24, fontWeight:800, margin:"10px 0 3px" }}>{room.name}</h2>
+          <div style={{ fontSize:15.6, color:"var(--ink-faint)" }}>{room.building} · Holds {room.cap}</div>
+          <button onClick={onClose} aria-label="Close" style={{ position:"absolute", top:18, right:20, width:30, height:30,
             borderRadius:8, background:"var(--line-soft)" }}>×</button>
         </div>
 
@@ -251,7 +248,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               </div>
             )}
 
-            {wlMsg && <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
+            {wlMsg && <div style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
             {conflicts.length > 0 && !needOrg && onJoinWaitlist && (
               <WaitlistOffer eventName={eventName} roomName={room.name} days={conflicts} start={start} end={end} line={waitlistLine} busy={busy} onJoin={joinWl} />
             )}
@@ -260,7 +257,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
         <div style={{ padding:"16px 22px", borderTop:"1px solid var(--line)", background:"var(--paper)" }}>
           {done ? (
-            <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:16.8, textAlign:"center" }}>
+            <div style={{ color:"var(--green)", fontWeight:600, fontSize:16.8, textAlign:"center" }}>
               ✓ {sorted.length} request{sorted.length === 1 ? "" : "s"} sent — you'll get a notification when reviewed
             </div>
           ) : confirming ? (
