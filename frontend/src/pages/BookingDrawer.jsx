@@ -22,10 +22,12 @@ const navBtn = { width:34, height:34, borderRadius:8, border:"2px solid var(--in
 export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist, waitlistLine = [], orgs = [] }) {
   const todayKey = dayKeyOf(new Date());
   const now = new Date();
-  const [month, setMonth] = useState({ y: now.getFullYear(), m: now.getMonth() });
-  const [dates, setDates] = useState([]);              // selected day keys
-  const [start, setStart] = useState(18 * 60);
-  const [end, setEnd] = useState(19 * 60);
+  const pf = room?.prefill;   // date + time picked in Find a Space's "Available on" filter
+  const pfStart = pf ? fromHHMM(pf.from) : null, pfEnd = pf ? fromHHMM(pf.to) : null;
+  const [month, setMonth] = useState(pf ? { y: +pf.date.slice(0, 4), m: +pf.date.slice(5, 7) - 1 } : { y: now.getFullYear(), m: now.getMonth() });
+  const [dates, setDates] = useState(pf ? [pf.date] : []);   // selected day keys
+  const [start, setStart] = useState(pfStart != null ? clamp(pfStart, MIN, MAX) : 18 * 60);
+  const [end, setEnd] = useState(pfEnd != null ? clamp(pfEnd, MIN, MAX) : 19 * 60);
   const [org, setOrg] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(false);
@@ -255,7 +257,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               </div>
             )}
 
-            {wlMsg && <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
+            {wlMsg && <div style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
             {conflicts.length > 0 && !needOrg && onJoinWaitlist && (
               <WaitlistOffer eventName={eventName} roomName={room.name} days={conflicts} start={start} end={end} line={waitlistLine} busy={busy} onJoin={joinWl} />
             )}
@@ -264,7 +266,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
         <div className="booking-foot" style={{ padding:"16px 22px", borderTop:"1px solid var(--line)", background:"var(--paper)" }}>
           {done ? (
-            <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:16.8, textAlign:"center" }}>
+            <div style={{ color:"var(--green)", fontWeight:600, fontSize:16.8, textAlign:"center" }}>
               ✓ {sorted.length} request{sorted.length === 1 ? "" : "s"} sent — you'll get a notification when reviewed
             </div>
           ) : confirming ? (
