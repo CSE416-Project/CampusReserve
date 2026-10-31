@@ -24,7 +24,8 @@ class OrganizationOut(BaseModel):
     name: str
     description: str | None
     verified_member_count: int
-    members: list[MembershipOut] | None = None   # only for admins and the org's members
+    members: list[MembershipOut] | None = None   # on the detail page only. Everyone sees the verified
+                                                 # e-board; admins and the org's own members see all
 
 
 class JoinBody(BaseModel):
@@ -58,11 +59,12 @@ def get_organization(
     org = db.get(Organization, as_uuid(organization_id, "organization"))
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found.")
-    see_members = has_scope(user, "manage:users") or org.id in verified_org_ids(db, user)
+    see_everyone = has_scope(user, "manage:users") or org.id in verified_org_ids(db, user)
+    shown = [m for m in org.memberships if see_everyone or m.verified_at]
     return OrganizationOut(
         id=str(org.id), name=org.name, description=org.description,
         verified_member_count=sum(1 for m in org.memberships if m.verified_at),
-        members=[membership_out(m) for m in org.memberships] if see_members else None)
+        members=[membership_out(m) for m in shown])
 
 
 @router.post("/{organization_id}/join", response_model=MembershipOut,

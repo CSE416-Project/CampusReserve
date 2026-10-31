@@ -3,6 +3,9 @@ import { slotState } from '../data/mock.js';
 import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf } from '../api.js';
 import Pill from '../components/Pill.jsx';
 import WaitlistOffer from '../components/WaitlistOffer.jsx';
+import BookingCalendar from '../components/BookingCalendar.jsx';
+import WeekCalendar, { CalendarLegend, startOfWeek } from '../components/WeekCalendar.jsx';
+import { useRoomWeek } from '../calendarData.js';
 import useDialog from '../a11y/useDialog.js';
 import { useScrollLock, useIsCompact } from '../useMedia.js';
 
@@ -28,6 +31,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const [end, setEnd] = useState(19 * 60);
   const [org, setOrg] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  const [showCal, setShowCal] = useState(false);       // the big calendar view
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [wlMsg, setWlMsg] = useState("");
@@ -41,7 +45,10 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   useDialog(panel, { open: !!room, onClose });
   // Phones and tablets: the page behind doesn't scroll while the drawer is open (desktop unchanged).
   const compact = useIsCompact();
-  useScrollLock(!!room && compact);
+  useScrollLock(!!room);
+  const wide = !compact;     // desktop: one big window, calendar on the left and the booking form on the right
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const { events: weekEvents, loading: weekLoading, error: weekError, retry: weekRetry } = useRoomWeek(room, weekStart);
 
   useEffect(() => {
     if (!done) return;
@@ -94,7 +101,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
   const setStartClamped = m => { const s = clamp(m, MIN, MAX - STEP); setStart(s); if (end <= s) setEnd(Math.min(s + 60, MAX)); };
   const setEndClamped = m => { setEnd(clamp(m, start + STEP, MAX)); };
-  const toggleDate = k => setDates(ds => ds.includes(k) ? ds.filter(x => x !== k) : [...ds, k]);
+  const toggleDate = k => { setDates(ds => ds.includes(k) ? ds.filter(x => x !== k) : [...ds, k]); if (!dates.includes(k)) setWeekStart(startOfWeek(keyToDate(k))); };
 
   const shiftMonth = d => setMonth(({ y, m }) => { const x = new Date(y, m + d, 1); return { y: x.getFullYear(), m: x.getMonth() }; });
   const cur = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -130,12 +137,52 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     finally { setBusy(false); }
   };
 
+  // Wide layout: click or drag on the calendar to add that day and use that time.
+  const pickInline = (key, s, e) => {
+    setDates(ds => ds.includes(key) ? ds : [...ds, key]);
+    setStart(s); setEnd(e); setError("");
+    const d = keyToDate(key); setMonth({ y: d.getFullYear(), m: d.getMonth() });
+  };
+  const mineEvents = sorted.map(k => {
+    const d = keyToDate(k);
+    return { id: `mine-${k}`, kind: "mine", title: eventName.trim() || "Your choice", sub: conflicts.includes(k) ? "Overlaps another booking" : "Your request",
+      start: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, start), end: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, end) };
+  });
+
+  // A time picked on the big calendar: add that day and use its time.
+  const pickFromCalendar = ({ key, start: s, end: e }) => {
+    setDates(ds => ds.includes(key) ? ds : [...ds, key]);
+    setStart(s); setEnd(e); setShowCal(false); setError("");
+    const d = keyToDate(key); setMonth({ y: d.getFullYear(), m: d.getMonth() });
+  };
+
   return (
     <>
       <div onClick={onClose} aria-hidden="true" style={{ position:"fixed", inset:0, background:"rgba(27,42,74,.28)", zIndex:40 }} />
       <div ref={panel} className="booking-panel" role="dialog" aria-modal="true" aria-labelledby="booking-title" aria-describedby="booking-sub" tabIndex={-1}
-        style={{ position:"fixed", top:0, right:0, bottom:0, width:500, maxWidth:"94vw", background:"var(--card)",
-        zIndex:50, boxShadow:"-8px 0 40px rgba(27,42,74,.18)", display:"flex", flexDirection:"column" }}>
+        style={wide
+          ? { position:"fixed", top:"3vh", bottom:"3vh", left:0, right:0, margin:"0 auto", width:"min(1220px, 96vw)", background:"var(--card)", zIndex:50,
+              border:"2px solid var(--ink)", borderRadius:16, boxShadow:"var(--shadow-lift)", display:"flex", flexDirection:"row", overflow:"hidden" }
+          : { position:"fixed", top:0, right:0, bottom:0, width:500, maxWidth:"94vw", background:"var(--card)",
+              zIndex:50, boxShadow:"-8px 0 40px rgba(27,42,74,.18)", display:"flex", flexDirection:"column" }}>
+        {wide && (
+          <div style={{ flex:"1 1 0", minWidth:0, padding:"20px 22px", display:"flex", flexDirection:"column", gap:12, overflowY:"auto", background:"var(--paper)", borderRight:"2px solid var(--ink)" }}>
+            <div>
+              <div style={{ fontSize:20, fontWeight:800 }}>Everyone's bookings</div>
+              <div style={{ fontSize:14.5, color:"var(--ink-faint)" }}>Click an empty time, or drag to choose how long. Your pick shows in yellow.</div>
+            </div>
+            {weekError && (
+              <div role="alert" style={{ padding:"10px 14px", borderRadius:10, background:"var(--red-wash)", color:"var(--red)", border:"2px solid var(--red)", fontSize:14, fontWeight:600 }}>
+                Couldn't load this week ({weekError}). <button onClick={weekRetry} style={{ color:"var(--link)", fontWeight:700, textDecoration:"underline" }}>Try again</button>
+              </div>
+            )}
+            <WeekCalendar weekStart={weekStart} onWeekChange={setWeekStart} events={[...weekEvents, ...mineEvents]} loading={weekLoading} noPast
+              onSelect={pickInline} maxHeight={620} />
+            <CalendarLegend />
+          </div>
+        )}
+        <div style={wide ? { width:430, flexShrink:0, display:"flex", flexDirection:"column", position:"relative", minHeight:0 }
+                         : { display:"flex", flexDirection:"column", flex:1, minHeight:0, position:"relative" }}>
         <div className="booking-head" style={{ padding:"20px 22px", borderBottom:"1px solid var(--line)" }}>
           <Pill status={room.status} small />
           <h2 id="booking-title" style={{ fontSize:24, fontWeight:800, margin:"10px 0 3px" }}>{room.name}</h2>
@@ -182,6 +229,11 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
                 </div>
               </div>
             )}
+
+            {!wide && <button onClick={() => setShowCal(true)} style={{ width:"100%", marginBottom:18, padding:"12px 14px", borderRadius:10, fontSize:15.5, fontWeight:700,
+              color:"var(--ink)", background:"var(--blue-wash)", border:"2px solid var(--ink)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              <span aria-hidden="true">📅</span> See all bookings on a calendar
+            </button>}
 
             <div style={{ fontSize:15.6, fontWeight:700, marginBottom:10 }}>Choose days — tap more than one</div>
             <div style={{ border:"2px solid var(--ink)", borderRadius:12, padding:12, background:"var(--paper)" }}>
@@ -286,7 +338,9 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
             </button>
           )}
         </div>
+        </div>
       </div>
+      {showCal && !wide && <BookingCalendar room={room} dates={dates} start={start} end={end} onPick={pickFromCalendar} onClose={() => setShowCal(false)} />}
     </>
   );
 }

@@ -3,6 +3,7 @@ import { roomNotes, upcomingEvents } from '../data/mock.js';
 import * as api from '../api.js';
 import Pill from '../components/Pill.jsx';
 import Feature from '../components/Feature.jsx';
+import RoomPhoto from '../components/RoomPhoto.jsx';
 
 const SCHEDULE_DAYS = 30;  // the API returns at most 30 days at a time
 const EVENTS_PER_PAGE = 5;
@@ -78,14 +79,9 @@ export default function RoomDetail({ room, onBack, onBook }) {
 
       <div className="rd-grid" style={{ display:"grid", gridTemplateColumns:"1.3fr 1fr", gap:32, alignItems:"start" }}>
         <div>
-          <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>3D model preview</div>
-          <div className="rd-preview" style={{ height:280, borderRadius:18, marginBottom:28, position:"relative",
-            background:"linear-gradient(135deg, #FFC93C 0%, #FF9B7A 100%)", display:"grid", placeItems:"center" }}>
-            <div style={{ textAlign:"center", color:"var(--ink)" }}>
-              <div style={{ fontSize:42, marginBottom:6 }}>⟳</div>
-              <div style={{ fontSize:18, fontWeight:600 }}>3D model coming soon</div>
-              <div style={{ fontSize:16, opacity:.8 }}>Venue hosts will be able to upload a scanned model here</div>
-            </div>
+          <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>Room photo</div>
+          <div className="rd-preview" style={{ height:280, marginBottom:28 }}>
+            <RoomPhoto room={room} />
           </div>
 
           <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>What's in this room</div>
