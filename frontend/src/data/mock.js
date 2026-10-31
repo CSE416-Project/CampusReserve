@@ -185,7 +185,7 @@ export function slotState(room, dateKey, slot) {
 
 export const VENUE_HOST_BUILDINGS = ["Student Activities Center","Staller Center"];
 
-export const SB_ENGAGED_URL = "https://sbengaged.stonybrook.edu/submitter/form/start/event-fulfillment";
+export const SB_ENGAGED_URL = "https://sbengaged.stonybrook.edu/";
 
 const ROOM_NOTES = {
   default: {

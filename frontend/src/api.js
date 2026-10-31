@@ -86,6 +86,7 @@ export function adaptRoom(r) {
     closed: r.club_bookable === false,
     note: r.pending_requests ? `${r.pending_requests} pending request${r.pending_requests === 1 ? "" : "s"}` : "Open for requests",
     slots: SLOTS, live: true,
+    instructions: [r.instructions, r.comments].filter(Boolean).join("\n\n"),
   };
 }
 
