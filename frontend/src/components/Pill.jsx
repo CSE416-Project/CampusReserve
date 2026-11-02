@@ -1,4 +1,4 @@
-import { STATUS } from '../data/mock.js';
+import { STATUS } from '../status.js';
 
 export default function Pill({ status, small }) {
   const s = STATUS[status];
