@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import gc
 import json
 import logging
 import os
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -46,6 +48,7 @@ CAMPUS_TZ = ZoneInfo("America/New_York")
 # Confirmed working for SBU guest access.
 SPACES_PATH = "/spaces.json"
 SPACES_PARAMS: dict[str, Any] = {"scope": "minimal"}
+_AVAILABILITY_PATH = "/availability/availabilitydata.json"
 
 EVENT_STATES = {0: "Draft", 1: "Tentative", 2: "Confirmed", 3: "Sealed",
                 98: "Deleted", 99: "Cancelled"}
@@ -63,6 +66,59 @@ _http_slots: asyncio.Semaphore | None = None
 _cache_loaded = False
 _warm_until = 0.0  # while now < this and no refresh has finished, accept older data
 
+# Memory limits (Render's free plan has 512 MB for the whole app).
+# Cache entries older than this are dropped, whatever they are...
+MAX_ENTRY_AGE_SECONDS = 26 * 60 * 60
+# ...and availability entries go sooner: today's are refetched every 30 min, so an old
+# one is for a start date that's passed (or a far-future search nobody repeated).
+MAX_AVAILABILITY_AGE_SECONDS = STARTUP_STALE_OK_SECONDS
+
+
+def _slim(key: str, data: Any) -> Any:
+    """Keep only the parts of a 25Live response we read. The full responses hold a lot
+    we never use, and Python objects take several times the size of the JSON."""
+    try:
+        if "/availability/availabilitydata.json" in key and isinstance(data, dict):
+            keep = ("start", "end", "type_id", "cur_event_state", "itemName",
+                    "ev_start_time", "ev_end_time", "exp_head_count")
+            return {"subjects": [
+                {"item_date": sub.get("item_date"), "itemId": sub.get("itemId"),
+                 "items": [{k: it.get(k) for k in keep if k in it} for it in sub.get("items") or []]}
+                for sub in data.get("subjects") or []
+            ]}
+        if "/micro/space/" in key and isinstance(data, dict):
+            items = (((data.get("content") or {}).get("data") or {}).get("items")) or []
+            space = next((i for i in items if i.get("kind") == "space"), None)
+            return {"content": {"data": {"items": [space] if space else []}}}
+    except (AttributeError, TypeError):
+        pass  # unexpected shape: keep it as-is
+    return data
+
+
+def _prune_cache() -> int:
+    """Drop cache entries nothing will use again. Returns how many were dropped."""
+    now = time.time()
+    old = [k for k, (ts, _) in _cache.items()
+           if now - ts > (MAX_AVAILABILITY_AGE_SECONDS if _AVAILABILITY_PATH in k else MAX_ENTRY_AGE_SECONDS)]
+    for k in old:
+        del _cache[k]
+    # Locks for URLs that are no longer cached and not being fetched right now.
+    for k in [k for k, lock in _locks.items() if k not in _cache and not lock.locked()]:
+        del _locks[k]
+    return len(old)
+
+
+def _memory_mb() -> float | None:
+    """Current memory use of this process in MB (Linux), for the logs."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+    except OSError:
+        pass
+    return None
+
 
 def _load_cache() -> None:
     """Load the on-disk cache once, on first use."""
@@ -75,8 +131,11 @@ def _load_cache() -> None:
         return
     try:
         raw = json.loads(CACHE_FILE.read_text())
-        _cache.update({k: (float(ts), data) for k, (ts, data) in raw.items()})
-        logger.info("Loaded %d cached 25Live responses from %s", len(raw), CACHE_FILE.name)
+        _cache.update({k: (float(ts), _slim(k, data)) for k, (ts, data) in raw.items()})
+        del raw
+        dropped = _prune_cache()
+        logger.info("Loaded %d cached 25Live responses from %s (%d too old, dropped)",
+                    len(_cache), CACHE_FILE.name, dropped)
     except (OSError, ValueError, TypeError) as e:
         logger.warning("Ignoring unreadable cache file %s: %s", CACHE_FILE, e)
 
@@ -86,7 +145,10 @@ def save_cache() -> None:
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         tmp = CACHE_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps({k: [ts, data] for k, (ts, data) in _cache.items()}))
+        # json.dump writes piece by piece; json.dumps would build the whole file as one
+        # string in memory first, which doubled memory use for a moment every save.
+        with tmp.open("w") as f:
+            json.dump({k: [ts, data] for k, (ts, data) in list(_cache.items())}, f)
         tmp.replace(CACHE_FILE)
     except OSError as e:
         logger.warning("Couldn't save 25Live cache: %s", e)
@@ -139,6 +201,7 @@ async def _get_json(path: str, params: dict[str, Any], force: bool = False,
             if hit:  # 25Live is down: serve stale data rather than fail
                 return hit[1]
             raise Live25Error(f"{e} (URL: {url})") from e
+        data = _slim(key, data)
         _cache[key] = (time.time(), data)
         return data
 
@@ -274,9 +337,6 @@ def _availability_params(space_id: str, start: dt.date) -> dict[str, Any]:
         "include": "closed blackouts pending related empty",
         "caller": "pro-AvailService.getData",
     }
-
-
-_AVAILABILITY_PATH = "/availability/availabilitydata.json"
 
 
 async def get_bookings(space_id: str, start: dt.date, end: dt.date | None = None) -> list[dict]:
@@ -486,14 +546,22 @@ IMAGE_URL_TEMPLATE = os.getenv(
     "LIVE25_IMAGE_URL_TEMPLATE",
     BASE_URL + "/image?image_id={image_id}&caller=S25ImageService.getUrl-pro",
 )
-_images: dict[str, tuple[bytes, str]] = {}
-MAX_CACHED_IMAGES = 200
+# Most recently used images, kept under both a count and a total size. (This used to
+# keep 200 images with no size limit: at 1-2 MB per photo that alone could fill Render's
+# 512 MB.) Browsers also cache photos now (see the photo route), so few repeat requests get here.
+_images: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
+_images_bytes = 0
+MAX_CACHED_IMAGES = 40
+MAX_CACHED_IMAGE_BYTES = 30 * 1024 * 1024   # 30 MB in total
+MAX_IMAGE_BYTES_TO_CACHE = 3 * 1024 * 1024  # a bigger single image is served but not kept
 
 
 async def get_image(image_id) -> tuple[bytes, str]:
     """(bytes, content type) for a 25Live image, cached in memory."""
+    global _images_bytes
     key = str(image_id)
     if key in _images:
+        _images.move_to_end(key)
         return _images[key]
     url = IMAGE_URL_TEMPLATE.replace("{image_id}", key)
     try:
@@ -505,10 +573,14 @@ async def get_image(image_id) -> tuple[bytes, str]:
     media_type = r.headers.get("content-type", "application/octet-stream").split(";")[0]
     if not media_type.startswith("image/"):
         raise Live25Error(f"expected an image, got {media_type} (URL: {url})")
-    if len(_images) >= MAX_CACHED_IMAGES:
-        _images.pop(next(iter(_images)))
-    _images[key] = (r.content, media_type)
-    return _images[key]
+    item = (r.content, media_type)
+    if len(item[0]) <= MAX_IMAGE_BYTES_TO_CACHE:
+        _images[key] = item
+        _images_bytes += len(item[0])
+        while _images and (len(_images) > MAX_CACHED_IMAGES or _images_bytes > MAX_CACHED_IMAGE_BYTES):
+            _, (old, _) = _images.popitem(last=False)
+            _images_bytes -= len(old)
+    return item
 
 
 # ---------------------------------------------------------------- background refresh
@@ -543,6 +615,7 @@ async def refresh_all_bookings() -> None:
 
     results = await asyncio.gather(*(refresh(r["id"]) for r in rooms))
     _warm_until = 0.0  # caught up: from now on, normal freshness rules apply
+    _prune_cache()
     await asyncio.to_thread(save_cache)
     logger.info("25Live refresh: %d rooms (%d fetched, %d already fresh, %d failed) in %.0fs",
                 len(rooms), results.count("ok"), results.count("skipped"),
@@ -599,4 +672,9 @@ async def run_refresh_loop() -> None:
                             len(info), last_detail_refresh - started)
         except Exception:  # keep the loop alive no matter what
             logger.exception("25Live refresh failed")
+        dropped = _prune_cache()
+        gc.collect()
+        logger.info("25Live cache: %d responses (%d old ones dropped), %d images (%.1f MB); "
+                    "app memory %s MB", len(_cache), dropped, len(_images), _images_bytes / 1e6,
+                    f"{_memory_mb():.0f}" if _memory_mb() is not None else "?")
         await asyncio.sleep(REFRESH_INTERVAL_SECONDS)
