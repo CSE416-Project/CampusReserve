@@ -124,9 +124,18 @@ export default function App() {
     const byId = Object.fromEntries(roomList.map(x => [x.id, x]));
     return raw.map(x => api.adaptRequest(x, byId));
   };
-  const loadRequests = async (r, roomList) => {
-    try { setRequests(adaptRequests(await fetchRequests(r), roomList)); }
-    catch (e) { setApiError(e.message); }
+  // Every load gets a number, and only the newest one is allowed to update the list. Without this, a
+  // background refresh that started before an approval can finish after it and show the old "pending" status.
+  const reqLoadSeq = useRef(0);
+  const deciding = useRef(0);   // approvals/denials still being saved; background refreshes wait for them
+  const loadRequests = async (r, roomList, { background=false } = {}) => {
+    if (background && deciding.current > 0) return;
+    const seq = ++reqLoadSeq.current;
+    try {
+      const list = adaptRequests(await fetchRequests(r), roomList);
+      if (seq === reqLoadSeq.current) setRequests(list);
+    }
+    catch (e) { if (seq === reqLoadSeq.current) setApiError(e.message); }
   };
   const loadLive = async (r, user) => {
     setDataLoading(true); setRooms([]); setClubs([]);
@@ -168,9 +177,15 @@ export default function App() {
   };
   const decide = async (id,status,reason) => {
     if (api.LIVE) {
+      reqLoadSeq.current++;   // throw away any refresh already on its way back with the old status
+      deciding.current++;
+      setRequests(r => r.map(req => req.id===id ? { ...req, status, reason } : req));   // show the decision right away
+      let failure = null;
       try { status==="approved" ? await api.approve(id) : await api.deny(id, reason); setApiError(""); }
-      catch (e) { setApiError(e.message); }
+      catch (e) { setApiError(e.message); failure = e; }
+      finally { deciding.current--; }
       await loadRequests(role, rooms);
+      if (failure) throw failure;
       return;
     }
     setRequests(r => r.map(req => req.id===id ? { ...req, status, reason } : req));
@@ -290,7 +305,7 @@ export default function App() {
     if (!api.LIVE || !signedIn) return;
     const jobs = [
       { every: page==="messages" ? 3000 : 12000, run: loadConvos },
-      { every: 15000, run: () => loadRequests(role, rooms) },
+      { every: ["approvals","requests","rooms"].includes(page) ? 5000 : 15000, run: () => loadRequests(role, rooms, { background:true }) },
       ...(role==="admin" ? [{ every: 15000, run: loadVerifs }] : []),
       ...(role==="leader" ? [{ every: 15000, run: loadMemberships }] : []),
       ...(page==="forum" ? [{ every: 15000, run: loadForum }] : []),
