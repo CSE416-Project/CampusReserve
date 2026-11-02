@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { SB_ENGAGED_URL } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
+import ConfirmModal from '../components/ConfirmModal.jsx';
 
 export default function MyRequests({ requests, showOrg = false, clubs = [], onCancel }) {
   const [status,setStatus]=useState("All"); const [q,setQ]=useState("");
@@ -83,6 +84,18 @@ export default function MyRequests({ requests, showOrg = false, clubs = [], onCa
           ))}
         </div>
       )}
+      {asking && (() => { const r = requests.find(x => x.id===asking); return r && (
+        <ConfirmModal title="Cancel this request?" confirmLabel="Yes, cancel request" cancelLabel="Keep it" danger busy={busy===asking}
+          onConfirm={()=>cancel(asking)} onCancel={()=>setAsking(null)}>
+          <div style={{ marginBottom:10 }}>
+            {r.status==="approved" ? "This booking is already approved. Cancelling it frees the room for other clubs." : "Your request will be withdrawn."}
+          </div>
+          <div style={{ border:"2px solid var(--ink)", borderRadius:10, padding:"12px 14px", background:"var(--paper)", color:"var(--ink)" }}>
+            <div style={{ fontWeight:700, fontSize:16 }}>{r.room.name}</div>
+            <div style={{ fontSize:14, color:"var(--ink-faint)" }}>{r.date} · {r.time}</div>
+          </div>
+        </ConfirmModal>
+      ); })()}
     </main>
   );
 }

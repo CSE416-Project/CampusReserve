@@ -61,6 +61,8 @@ export async function login(email, password) {
   return call("/auth/me");
 }
 export const me = () => call("/auth/me");
+export const changePassword = (current, next) =>
+  call("/auth/change-password", { method: "POST", json: { current_password: current, new_password: next } });
 export const register = (email, name, password) =>
   call("/auth/register", { method: "POST", json: { email: email.trim(), name: name.trim(), password } });
 export const searchOrgs = q => call("/organizations?search=" + encodeURIComponent(q));
@@ -137,7 +139,7 @@ export function adaptRequest(r, roomsById = {}) {
   const status = r.status;
   return { id: r.id, room, org: r.organization_name || "", date: `${DOW[s.getDay()]}, ${MON[s.getMonth()]} ${s.getDate()}`,
     time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason,
-    event: r.event_name, position: r.waitlist_position };
+    event: r.event_name, position: r.waitlist_position, startAt: s, endAt: new Date(r.end_time) };
 }
 
 // Busy intervals per day from schedule items: { "2026-10-21": [[startMin, endMin, "booked"|"requested"], ...] }

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -12,6 +12,7 @@ from authentication import (
     create_access_token,
     hash_password,
     get_current_user,
+    verify_password,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -22,6 +23,11 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     name: str
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class UserResponse(BaseModel):
@@ -88,3 +94,23 @@ def read_me(current_user: User = Depends(get_current_user)):
         name=current_user.name,
         role=current_user.role,
     )
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change your own password. You must give the current one.
+
+    A wrong current password is a 400, not a 401, because a 401 makes the
+    website think your login expired and signs you out."""
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Your current password is incorrect.")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Choose a new password that is different from your current one.")
+    current_user.password_hash = hash_password(payload.new_password)
+    db.commit()

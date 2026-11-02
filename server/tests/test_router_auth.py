@@ -170,3 +170,63 @@ def test_me_with_a_tampered_token_is_401(client, auth, leader):
     tampered = f"{head}.{payload}.{sig[:-2]}{'AA' if sig[-2:] != 'AA' else 'BB'}"
     r = client.get("/auth/me", headers={"Authorization": f"Bearer {tampered}"})
     assert r.status_code == 401
+
+
+# =============================================================================
+# POST /auth/change-password
+# =============================================================================
+
+def change(client, auth, user, current=PASSWORD, new="brand-new-pass"):
+    return client.post("/auth/change-password", headers=auth(user),
+                       json={"current_password": current, "new_password": new})
+
+
+def test_change_password_needs_a_token(client):
+    r = client.post("/auth/change-password", json={"current_password": "x", "new_password": "longenough1"})
+    assert r.status_code == 401
+
+
+def test_change_password_then_log_in_with_the_new_one(client, auth, leader):
+    assert change(client, auth, leader).status_code == 204
+
+    assert login(client, leader.email, "brand-new-pass").status_code == 200
+    assert login(client, leader.email, PASSWORD).status_code == 401
+
+
+def test_change_password_stores_a_hash(client, auth, db, leader):
+    change(client, auth, leader)
+    db.refresh(leader)
+    assert leader.password_hash != "brand-new-pass" and leader.password_hash.startswith("$2")
+
+
+def test_wrong_current_password_is_400_and_changes_nothing(client, auth, leader):
+    r = change(client, auth, leader, current="not-my-password")
+
+    assert r.status_code == 400 and "current password" in r.json()["detail"]
+    assert login(client, leader.email, PASSWORD).status_code == 200
+
+
+def test_new_password_must_differ_from_the_current_one(client, auth, leader):
+    assert change(client, auth, leader, new=PASSWORD).status_code == 400
+
+
+@pytest.mark.parametrize("new", ["short", "", "1234567"])
+def test_new_password_must_be_at_least_8_characters(client, auth, leader, new):
+    assert change(client, auth, leader, new=new).status_code == 422
+
+
+def test_change_password_needs_both_fields(client, auth, leader):
+    r = client.post("/auth/change-password", headers=auth(leader), json={"new_password": "brand-new-pass"})
+    assert r.status_code == 422
+
+
+def test_your_login_still_works_after_changing_the_password(client, auth, leader):
+    headers = auth(leader)
+    client.post("/auth/change-password", headers=headers,
+                json={"current_password": PASSWORD, "new_password": "brand-new-pass"})
+    assert client.get("/auth/me", headers=headers).status_code == 200
+
+
+def test_change_password_only_changes_your_own(client, auth, leader, host):
+    change(client, auth, leader)
+    assert login(client, host.email, PASSWORD).status_code == 200

@@ -35,7 +35,7 @@ export default function ClubProfile({ name, clubs, requests, selfId, onBack, onM
       <div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>E-board ({eboard ? eboard.length : club.count})</div>
       {!eboard ? (
         <div style={{ fontSize:14.5, color:"var(--ink-soft)", marginBottom:26 }}>
-          {club.count} verified e-board member{club.count === 1 ? "" : "s"}. Names are visible to admins and the club's own members.
+          {club.count} verified e-board member{club.count === 1 ? "" : "s"}. Loading names…
         </div>
       ) : (<>
       {!club.live && <div style={{ fontSize:14, color:"var(--ink-soft)", marginBottom:12 }}>One e-board member holds the club's account. Everyone listed gets an email when a booking is approved.</div>}
