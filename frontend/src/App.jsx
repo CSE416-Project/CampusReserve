@@ -17,6 +17,9 @@ import ClubProfile from './pages/ClubProfile.jsx';
 import Profile from './pages/Profile.jsx';
 import Login from './pages/Login.jsx';
 import CreateAccount from './pages/CreateAccount.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
+import VerifyEmail from './pages/VerifyEmail.jsx';
 import Verifications from './pages/Verifications.jsx';
 import { setKnownClubs } from './components/OrgLink.jsx';
 import * as api from './api.js';
@@ -288,7 +291,10 @@ export default function App() {
 
   // ---- routing: the URL is the source of truth for which page is showing ----
   const seg = path.split("/").filter(Boolean).map(dec);
-  const authView = seg[0]==="login" ? "login" : seg[0]==="signup" ? "signup" : null;
+  const authView = seg[0]==="login" ? "login" : seg[0]==="signup" ? "signup" : seg[0]==="forgot-password" ? "forgot" : null;
+  // Pages opened from an emailed link. They work whether or not the person is logged in.
+  const linkView = seg[0]==="reset-password" ? "reset" : seg[0]==="verify-email" ? "verify" : null;
+  const linkToken = new URLSearchParams(window.location.search).get("token") || "";
   const page = seg[0] || "";
   const viewingClub = seg[0]==="clubs" && seg[1] ? seg[1] : null;
   const viewingRoomId = seg[0]==="find" && seg[1]==="rooms" && seg[2] ? seg[2] : null;
@@ -368,7 +374,7 @@ export default function App() {
 
   // Route guards: signed-out users go to /login; signed-in users can't sit on /login or a page their role doesn't have.
   useEffect(() => {
-    if (booting || bootError) return;
+    if (booting || bootError || linkView) return;
     if (!signedIn) {
       if (!authView) { afterLogin.current = path==="/" ? null : path; navigate("/login", { replace:true }); }
     } else if (authView || path==="/" || !allowed(role, path)) {
@@ -382,8 +388,12 @@ export default function App() {
       <div><p style={{ fontWeight:600, color:"var(--red)" }}>{bootError}</p>
         <button onClick={restore} style={{ padding:"10px 18px", borderRadius:10, border:"2px solid var(--ink)", fontWeight:700 }}>Try again</button></div>
     </div>);
+  const toLogin = () => { if (signedIn) { api.setToken(null); setSignedIn(false); } navigate("/login"); };
+  if (linkView==="reset") return <ResetPassword token={linkToken} onDone={toLogin} onRequestNew={()=>{ if (signedIn) { api.setToken(null); setSignedIn(false); } navigate("/forgot-password"); }} />;
+  if (linkView==="verify") return <VerifyEmail token={linkToken} onDone={toLogin} />;
+  if (!signedIn && authView==="forgot") return <ForgotPassword onBack={()=>navigate("/login")} />;
   if (!signedIn && authView==="signup") return <CreateAccount onCreate={signIn} onLogin={()=>navigate("/login")} />;
-  if (!signedIn) return <Login onLogin={signIn} onSignup={()=>navigate("/signup")} />;
+  if (!signedIn) return <Login onLogin={signIn} onSignup={()=>navigate("/signup")} onForgot={()=>navigate("/forgot-password")} />;
   if (authView) return null; // redirecting away from /login
 
   return (
@@ -424,7 +434,7 @@ export default function App() {
           {page==="profile" && <Profile key={role} role={role} profile={profiles[role]} onOpenClub={openClub}
             onSave={patch=>setProfiles(p=>({ ...p, [role]:{ ...p[role], ...patch } }))}
             memberships={memberships} membershipsLoaded={memLoaded} onSearchOrgs={searchOrgOptions} onJoin={joinOrg}
-            onChangePassword={api.LIVE ? api.changePassword : undefined} />}
+            onChangePassword={api.LIVE ? api.changePassword : undefined} onForgotPassword={api.LIVE ? api.forgotPassword : undefined} />}
           {page==="messages" && <Messages threads={threads} onSend={sendMessage} onStartChat={startChat}
             activeId={activeThread} setActiveId={setActiveThread} selfId={selfId} onSearchPeople={searchPeople} unreadMap={unreadMap} />}
           {page==="map" && <CampusMapPage rooms={rooms} loading={roomsLoading}

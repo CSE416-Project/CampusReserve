@@ -8,9 +8,16 @@ const label = { fontSize:14, fontWeight:600, color:"var(--ink-soft)", display:"b
 const card = { background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, padding:"24px 26px", boxShadow:"var(--shadow)", marginBottom:22 };
 const primary = { padding:"11px 22px", borderRadius:10, fontSize:15, fontWeight:700, color:"var(--ink)", background:"var(--blue)" };
 
-export default function Profile({ role, profile, onSave, onOpenClub, memberships = [], membershipsLoaded = true, onSearchOrgs, onJoin, onChangePassword }) {
+export default function Profile({ role, profile, onSave, onOpenClub, memberships = [], membershipsLoaded = true, onSearchOrgs, onJoin, onChangePassword, onForgotPassword }) {
   const [name,setName]=useState(profile.name); const [saved,setSaved]=useState(false);
   const [cur,setCur]=useState(""); const [next,setNext]=useState(""); const [confirm,setConfirm]=useState(""); const [pwMsg,setPwMsg]=useState(null); const [pwBusy,setPwBusy]=useState(false);
+  const [fpMsg,setFpMsg]=useState(null); const [fpBusy,setFpBusy]=useState(false);
+  const emailReset = async () => {
+    setFpBusy(true); setFpMsg(null);
+    try { if (onForgotPassword) await onForgotPassword(profile.email); setFpMsg({ ok:true, text:`✓ We emailed a reset link to ${profile.email}. It opens a page where you choose a new password.` }); }
+    catch (e) { setFpMsg({ ok:false, text:e.message }); }
+    setFpBusy(false);
+  };
 
   // add-a-club form
   const [q,setQ]=useState(""); const [results,setResults]=useState([]); const [chosen,setChosen]=useState(null);
@@ -141,6 +148,11 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
         <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:20, flexWrap:"wrap" }}>
           <button onClick={updatePassword} disabled={pwBusy} style={primary}>{pwBusy ? "Updating…" : "Update password"}</button>
           {pwMsg && <span role="status" style={{ fontSize:14.5, fontWeight:600, color: pwMsg.ok ? "var(--green)" : "var(--red)" }}>{pwMsg.text}</span>}
+        </div>
+        <div style={{ marginTop:18, paddingTop:14, borderTop:"1px solid var(--line)", fontSize:14.5, color:"var(--ink-soft)" }}>
+          Forgot your current password?{" "}
+          <button onClick={emailReset} disabled={fpBusy} style={{ color:"var(--link)", fontWeight:700, fontSize:14.5, textDecoration:"underline" }}>{fpBusy ? "Sending…" : "Email me a reset link"}</button>
+          {fpMsg && <div role="status" style={{ marginTop:8, fontWeight:600, color: fpMsg.ok ? "var(--green)" : "var(--red)" }}>{fpMsg.text}</div>}
         </div>
       </div>
     </main>

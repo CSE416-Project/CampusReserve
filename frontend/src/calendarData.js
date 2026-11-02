@@ -19,7 +19,7 @@ export function scheduleToEvents(items) {
       start, end, blockedStart: new Date(it.start), blockedEnd: new Date(it.end),
       title: it.name || KINDS[kind].label,
       sub: kind === "waitlist" && it.waitlist_position ? `Waitlist #${it.waitlist_position}` : KINDS[kind].label,
-      kind,
+      kind, source: it.source || null, waitlistPosition: it.waitlist_position || null,
     };
   });
 }

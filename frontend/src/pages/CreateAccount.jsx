@@ -1,12 +1,23 @@
 import { useState } from 'react';
-import { LIVE, register, login, ROLE_FROM_SERVER } from '../api.js';
+import { LIVE, register, resendVerification } from '../api.js';
 import AuthShell, { authInput, authLabel } from '../components/AuthShell.jsx';
 import PasswordInput from '../components/PasswordInput.jsx';
 
 export default function CreateAccount({ onCreate, onLogin }) {
   const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
+  const [sentTo,setSentTo]=useState(null); const [resent,setResent]=useState(false);
   const [form,setForm]=useState({ name:"", email:"", password:"", confirm:"" });
   const set = k => e => { setForm(f => ({ ...f, [k]: e.target.value })); setError(""); };
+  if (sentTo) return (
+    <AuthShell title="Check your email" subtitle="" footer={<button onClick={onLogin} style={{ color:"var(--link)", fontWeight:700, fontSize:15 }}>Go to log in</button>}>
+      <div role="status" style={{ marginTop:4, fontSize:15.5, lineHeight:1.55, color:"var(--ink-soft)" }}>
+        We sent a confirmation link to <b style={{ color:"var(--ink)" }}>{sentTo}</b>. Open it to finish creating your account, then log in. The link works for 24 hours.
+        <div style={{ marginTop:14, fontSize:14, color:"var(--ink-faint)" }}>Nothing arrived? Check your spam folder, or{" "}
+          {resent ? <span style={{ color:"var(--green)", fontWeight:600 }}>✓ sent again.</span>
+            : <button onClick={async()=>{ try { await resendVerification(sentTo); } catch { /* same either way */ } setResent(true); }} style={{ color:"var(--link)", fontWeight:700, fontSize:14 }}>email it again</button>}
+        </div>
+      </div>
+    </AuthShell>);
   return (
     <AuthShell title="Create your account" subtitle="Use your SBU email. It only takes a minute."
       footer={<>Already have an account? <button onClick={onLogin} style={{ color:"var(--link)", fontWeight:700, fontSize:15 }}>Log in</button></>}>
@@ -19,9 +30,9 @@ export default function CreateAccount({ onCreate, onLogin }) {
           setBusy(true);
           try {
             await register(form.email, form.name, form.password);
-            const u = await login(form.email, form.password);
-            onCreate(ROLE_FROM_SERVER[u.role] || "leader", u);
-          } catch (err) { setError(err.message); setBusy(false); }
+            setSentTo(form.email.trim());     // the server emailed a link; they log in after clicking it
+          } catch (err) { setError(err.message); }
+          setBusy(false);
           return;
         }
         onCreate("leader"); }}>

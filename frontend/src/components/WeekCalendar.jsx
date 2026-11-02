@@ -32,6 +32,28 @@ export const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() 
 export const fmt12 = m => { const h = Math.floor(m / 60) % 24; return `${((h + 11) % 12) + 1}:${p2(m % 60)} ${h < 12 ? "AM" : "PM"}`; };
 const hourLabel = h => `${((h + 11) % 12) + 1} ${h < 12 || h === 24 ? "AM" : "PM"}`;
 const snap = m => Math.floor(m / SNAP) * SNAP;
+const fmtT = d => fmt12(d.getHours() * 60 + d.getMinutes());
+const fmtDay = d => d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+
+// What to show when you hover an event: a few plain-language lines.
+function eventDetails(ev) {
+  const st = KINDS[ev.kind] || KINDS.booked;
+  const lines = [];
+  lines.push(["When", `${fmtDay(ev.start)}, ${fmtT(ev.start)} – ${fmtT(ev.end)}`]);
+  const bs = ev.blockedStart, be = ev.blockedEnd;
+  if (bs && be && (bs.getTime() !== ev.start.getTime() || be.getTime() !== ev.end.getTime()))
+    lines.push(["Room held", `${fmtT(bs)} – ${fmtT(be)} (includes setup and cleanup)`]);
+  const mins = Math.round((ev.end - ev.start) / 60000);
+  lines.push(["Length", mins >= 60 ? `${Math.floor(mins / 60)} hr${mins % 60 ? ` ${mins % 60} min` : ""}` : `${mins} min`]);
+  if (ev.kind === "waitlist" && ev.waitlistPosition) lines.push(["Waitlist", `Spot #${ev.waitlistPosition} in line`]);
+  if (ev.source === "25live") lines.push(["From", "The university's 25Live calendar"]);
+  else if (ev.source) lines.push(["From", "A CampusReserve club request"]);
+  const note = {
+    booked: "This time is taken.", approved: "Approved. This time is taken.", pending: "Requested by a club, waiting for approval. It may still open up.",
+    waitlist: "Someone is waiting for this time if it opens up.", closed: "The room isn't available then.", mine: "The time you picked.",
+  }[ev.kind];
+  return { st, lines, note };
+}
 
 // The part of each event that falls on `day`, as minutes (clipped to the hours shown).
 function minutesOn(day, ev, fromMin, toMin) {
@@ -123,6 +145,9 @@ export default function WeekCalendar({ weekStart, onWeekChange, events = [], sel
   };
 
   const top = m => (m - fromMin) / 60 * HOUR_H;
+  // Hover (or keyboard focus) on an event shows its details in a small card next to the pointer.
+  const [tip, setTip] = useState(null);   // { ev, x, y }
+  const showTip = (ev, x, y) => setTip({ ev, x, y });
   const sel = drag ? { key: drag.key, start: Math.min(drag.a, drag.b), end: Math.max(drag.a, drag.b) + SNAP, drag: true } : selection;
 
   return (
@@ -179,8 +204,13 @@ export default function WeekCalendar({ weekStart, onWeekChange, events = [], sel
                   {items.map(({ ev, s, e, lane, lanes: n }, i) => {
                     const st = KINDS[ev.kind] || KINDS.booked, h = top(e) - top(s);
                     return (
-                      <div key={`${ev.id}-${i}`} onPointerDown={x => x.stopPropagation()}
-                        title={`${ev.title}${ev.sub ? ` · ${ev.sub}` : ""} · ${fmt12(s)}–${fmt12(e)}`}
+                      <div key={`${ev.id}-${i}`} onPointerDown={x => x.stopPropagation()} data-event tabIndex={0}
+                        aria-label={`${ev.title}, ${st.label}, ${fmtDay(ev.start)}, ${fmtT(ev.start)} to ${fmtT(ev.end)}`}
+                        onPointerEnter={x => { if (x.pointerType !== "touch") showTip(ev, x.clientX, x.clientY); }}
+                        onPointerMove={x => { if (x.pointerType !== "touch") showTip(ev, x.clientX, x.clientY); }}
+                        onPointerLeave={() => setTip(null)}
+                        onFocus={x => { const r = x.currentTarget.getBoundingClientRect(); showTip(ev, r.right, r.top); }}
+                        onBlur={() => setTip(null)}
                         style={{ position: "absolute", top: top(s) + 1, height: Math.max(h - 2, 14), left: `calc(${(lane / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)`,
                           background: st.hatch ? `repeating-linear-gradient(45deg, ${st.bg}, ${st.bg} 5px, var(--paper) 5px, var(--paper) 10px)` : st.bg,
                           color: st.fg, border: `2px ${st.dashed ? "dashed" : "solid"} ${st.border}`, borderRadius: 6, padding: "2px 5px", overflow: "hidden",
@@ -211,6 +241,28 @@ export default function WeekCalendar({ weekStart, onWeekChange, events = [], sel
           </div>
         </div>
       </div>
+      {tip && <EventTip tip={tip} />}
+    </div>
+  );
+}
+
+// The hover card. Fixed to the screen so the grid's scrolling never clips it.
+function EventTip({ tip }) {
+  const { st, lines, note } = eventDetails(tip.ev);
+  const W = 270, vw = window.innerWidth, vh = window.innerHeight;
+  const left = Math.max(8, Math.min(tip.x + 16, vw - W - 8));
+  const top = Math.max(8, Math.min(tip.y + 16, vh - 200));
+  return (
+    <div role="tooltip" style={{ position: "fixed", left, top, width: W, zIndex: 300, pointerEvents: "none", background: "var(--card)", color: "var(--ink)",
+      border: "2px solid var(--ink)", borderRadius: 10, boxShadow: "4px 4px 0 var(--ink)", padding: "11px 13px", fontSize: 13.5, lineHeight: 1.4 }}>
+      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>{tip.ev.title}</div>
+      <span style={{ display: "inline-block", padding: "1px 9px", borderRadius: 999, fontSize: 12, fontWeight: 700, background: st.bg, border: `2px ${st.dashed ? "dashed" : "solid"} ${st.border}`, marginBottom: 8 }}>{st.label}</span>
+      {lines.map(([k, v]) => (
+        <div key={k} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
+          <span style={{ width: 70, flexShrink: 0, color: "var(--ink-faint)", fontWeight: 600 }}>{k}</span><span>{v}</span>
+        </div>
+      ))}
+      {note && <div style={{ marginTop: 7, color: "var(--ink-soft)", fontStyle: "italic" }}>{note}</div>}
     </div>
   );
 }
