@@ -40,6 +40,15 @@ As mentioned in the proposal, here are the functional and non functional require
 **FR-12 — Analytics.** Administrators can view analytics on room demand, peak booking times, and usage patterns.
 *Why:* requested directly by Student Affairs (Ahmed Belazi, Executive Director for Strategic Analytics and Technologies). Administrators need to see how spaces are used to allocate them well and to confirm that the technology spend is justified. Since SBU is our client, this helps our stakeholders make decisions and feel confident in the platform.
 
+**FR-13 — Export.** Administrators will have the option to export the current bookings in the form of a CSV file. The format of the CSV file will be in line with the 25Live CSV import guidelines.
+*Why:* Acquirement of write-access to 25Live is strict and requires proper coordination with PeopleSoft and SBU DoIT. To protect our project roadmap, we built our system so that we can export booked rooms as CSV files. This CSV will be exported by administrators to import into 25Live.
+
+**FR-14 — Campus map.** There will be a map visual of the Stony Brook University campus. There will also be markers that show where each bookable space is located. 
+*Why:* Users can reference this map in order to see where rooms are located. This can help users make better booking choices for themselves and also physically find these rooms. 
+
+**FR-15 — Mobile option.** The site can  be accessed through a mobile device. 
+*Why: *Users can book rooms, respond to messages, view rooms, etc at their own convenience.
+
 ## Non-Functional Requirements
 
 **Security and privacy.** These requirements stem directly from Student Affairs feedback, which prioritizes confidentiality.
@@ -58,3 +67,5 @@ As mentioned in the proposal, here are the functional and non functional require
 
 - **NFR-7 — Status latency.** A change in a room's status is reflected to other users within a few seconds.
 - **NFR-8 — No false availability.** The system never shows a space as freely bookable when it has a pending request or is closed.
+- **NFR-9 — No double-booking.** Two approved bookings for the same room can never overlap, enforced by the database itself as well as by the booking logic.
+- **NFR-10 — Speed.** Through pagination, the system will show only a set amount of data at a time to speed up loading
