@@ -73,10 +73,11 @@ def test_register_requires_every_field(client, missing):
     assert client.post("/auth/register", json=body).status_code == 422
 
 
-def test_registered_user_can_log_in(client):
+def test_registered_user_must_confirm_email_before_logging_in(client):
     register(client, email="fresh@example.com", password="fresh-pass-1")
     r = login(client, "fresh@example.com", "fresh-pass-1")
-    assert r.status_code == 200
+    assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "email_not_verified"
 
 
 # =============================================================================

@@ -2,7 +2,7 @@
    the map fills the space, the search box and filter chips float on top, and a card
    slides in on the left (desktop) or up from the bottom (phones). */
 
-.gm { position: relative; height: calc(100dvh - 67px); min-height: 420px; overflow: hidden; background: #e8eaed; }
+.gm { position: relative; height: calc(100dvh - 67px); min-height: 420px; overflow: hidden; isolation: isolate; /* keeps the map's own layers (card, search bar, controls) below the booking window */ background: #e8eaed; }
 html.has-tabbar .gm { height: calc(100dvh - var(--topbar-h) - 3px - var(--tabbar-h) - var(--safe-b)); }
 .gm-map { position: absolute; inset: 0; z-index: 0; }
 .gm .leaflet-container { font-family: inherit; background: #e8eaed; }

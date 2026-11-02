@@ -18,6 +18,7 @@ from .organization_and_venue import (
 
 from .room import Room, RoomClosure, Request, RequestStatus, SyncStatus
 from .room_comment import RoomComment
+from .auth_token import AuthToken
 
 from .communication import (
     Conversation,
@@ -31,6 +32,7 @@ from .communication import (
 
 __all__ = [
     "Base",
+    "AuthToken",
     "User",
     "UserRole",
     "Organization",

@@ -36,7 +36,9 @@ async function call(path, { method = "GET", json, form, withTotal = false } = {}
   try { data = await res.json(); } catch { /* no body */ }
   if (!res.ok) {
     if (res.status === 401 && token && path !== "/auth/token") setToken(null);
-    throw new Error(errorMessage(data, res.status));
+    const err = new Error(errorMessage(data, res.status));
+    err.code = data && data.detail && data.detail.code;   // e.g. "email_not_verified"
+    throw err;
   }
   if (withTotal) {
     const header = res.headers.get("X-Total-Count");
@@ -65,6 +67,11 @@ export const changePassword = (current, next) =>
   call("/auth/change-password", { method: "POST", json: { current_password: current, new_password: next } });
 export const register = (email, name, password) =>
   call("/auth/register", { method: "POST", json: { email: email.trim(), name: name.trim(), password } });
+// Forgot password, and confirming a new account's email. These work without being logged in.
+export const forgotPassword = email => call("/auth/forgot-password", { method: "POST", json: { email: email.trim() } });
+export const resetPassword = (token, new_password) => call("/auth/reset-password", { method: "POST", json: { token, new_password } });
+export const verifyEmail = token => call("/auth/verify-email", { method: "POST", json: { token } });
+export const resendVerification = email => call("/auth/resend-verification", { method: "POST", json: { email: email.trim() } });
 export const searchOrgs = q => call("/organizations?search=" + encodeURIComponent(q));
 export const joinOrg = (id, position_title) =>
   call(`/organizations/${id}/join`, { method: "POST", json: { position_title: position_title || null } });
