@@ -8,8 +8,8 @@ const label = k => keyToDate(k).toLocaleDateString("en-US", { weekday: "short", 
 
 // A full-screen week calendar for one room: everyone's bookings are visible, and you click or
 // drag on an empty time to pick it. "Use this time" hands the pick back to the booking form.
-export default function BookingCalendar({ room, dates = [], start, end, onPick, onClose }) {
-  const first = dates.filter(k => k >= dayKey(new Date())).sort()[0];
+export default function BookingCalendar({ room, picks = [], onPick, onClose }) {
+  const first = picks.map(p => p.key).filter(k => k >= dayKey(new Date())).sort()[0];
   const [weekStart, setWeekStart] = useState(() => startOfWeek(first ? keyToDate(first) : new Date()));
   const [sel, setSel] = useState(null);                       // { key, start, end }
   const { events, loading, error, retry } = useRoomWeek(room, weekStart);
@@ -20,11 +20,11 @@ export default function BookingCalendar({ room, dates = [], start, end, onPick, 
   useScrollLock(true);
 
   // What you've already chosen in the form shows up as yellow blocks.
-  const mine = useMemo(() => dates.map(k => {
+  const mine = useMemo(() => picks.map(({ key: k, start, end }) => {
     const d = keyToDate(k);
     return { id: `mine-${k}`, kind: "mine", title: "Your choice", sub: "Already picked",
       start: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, start), end: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, end) };
-  }), [dates, start, end]);
+  }), [picks]);
 
   // Does the pick overlap somebody else's booking, request or a closure?
   const clash = useMemo(() => {

@@ -31,6 +31,8 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const [dates, setDates] = useState(pf ? [pf.date] : []);   // selected day keys
   const [start, setStart] = useState(pfStart != null ? clamp(pfStart, MIN, MAX) : 18 * 60);
   const [end, setEnd] = useState(pfEnd != null ? clamp(pfEnd, MIN, MAX) : 19 * 60);
+  // Each chosen day has its own time. start/end above are the time new days start with.
+  const [times, setTimes] = useState(pf ? { [pf.date]: { start: pfStart != null ? clamp(pfStart, MIN, MAX) : 18 * 60, end: pfEnd != null ? clamp(pfEnd, MIN, MAX) : 19 * 60 } } : {});
   const [org, setOrg] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [showCal, setShowCal] = useState(false);       // the big calendar view
@@ -38,6 +40,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const [busy, setBusy] = useState(false);
   const [wlMsg, setWlMsg] = useState("");
   const [eventName, setEventName] = useState("");
+  const [names, setNames] = useState({});            // an optional event name for one day; blank = use the main name
   const [error, setError] = useState("");
   const [live, setLive] = useState({});                // live busy intervals by day key
   const [schedErr, setSchedErr] = useState("");   // set when the room's schedule can't be loaded
@@ -88,22 +91,47 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     }
     return out;
   };
+  const nameOf = k => (names[k] || "").trim() || eventName.trim();   // the event name for one day
+  const tOf = k => times[k] || { start, end };   // the time chosen for one day
   const overlaps = key => {
-    const hit = intervalsFor(key).filter(([s, e]) => s < end && e > start);
+    const t = tOf(key);
+    const hit = intervalsFor(key).filter(([s, e]) => s < t.end && e > t.start);
     return { booked: hit.filter(h => h[2] === "booked"), requested: hit.filter(h => h[2] === "requested") };
   };
 
   const sorted = [...dates].sort();
-  const rangeOk = end > start;
+  const rangeOk = sorted.every(k => tOf(k).end > tOf(k).start);
   // a conflict = another club's booking OR request overlaps the chosen date + time
   const conflicts = sorted.filter(k => { const o = overlaps(k); return o.booked.length > 0 || o.requested.length > 0; });
   const needOrg = orgs.length > 1 && !org;
   const bookingOrg = orgs.length > 1 ? org : orgs[0];
-  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg && eventName.trim().length > 0;
+  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg && sorted.every(k => nameOf(k));   // every day needs a name: its own, or the main one
 
-  const setStartClamped = m => { const s = clamp(m, MIN, MAX - STEP); setStart(s); if (end <= s) setEnd(Math.min(s + 60, MAX)); };
-  const setEndClamped = m => { setEnd(clamp(m, start + STEP, MAX)); };
-  const toggleDate = k => { setDates(ds => ds.includes(k) ? ds.filter(x => x !== k) : [...ds, k]); if (!dates.includes(k)) setWeekStart(startOfWeek(keyToDate(k))); };
+  // The top time box sets the default for new days, and moves any day that is still on that default.
+  const changeDefault = (ns, ne) => {
+    setTimes(t => Object.fromEntries(Object.entries(t).map(([k, v]) => [k, v.start === start && v.end === end ? { start: ns, end: ne } : v])));
+    setStart(ns); setEnd(ne);
+  };
+  const setStartClamped = m => { const s = clamp(m, MIN, MAX - STEP); changeDefault(s, end <= s ? Math.min(s + 60, MAX) : end); };
+  const setEndClamped = m => { changeDefault(start, clamp(m, start + STEP, MAX)); };
+  // One day's own time.
+  const setDayTime = (k, which, m) => {
+    const cur = tOf(k);
+    const next = which === "start"
+      ? (() => { const s = clamp(m, MIN, MAX - STEP); return { start: s, end: cur.end <= s ? Math.min(s + 60, MAX) : cur.end }; })()
+      : { start: cur.start, end: clamp(m, cur.start + STEP, MAX) };
+    setTimes(t => ({ ...t, [k]: next })); setStart(next.start); setEnd(next.end);
+  };
+  const sameForAll = () => { const first = tOf(sorted[0]); setTimes(t => Object.fromEntries(sorted.map(k => [k, { ...first }]))); };
+  const addDay = (k, s, e) => {
+    setDates(ds => ds.includes(k) ? ds : [...ds, k]);
+    setTimes(t => ({ ...t, [k]: s != null ? { start: s, end: e } : (t[k] || { start, end }) }));
+    if (s != null) { setStart(s); setEnd(e); }
+  };
+  const toggleDate = k => {
+    if (dates.includes(k)) { setDates(ds => ds.filter(x => x !== k)); setTimes(t => { const n = { ...t }; delete n[k]; return n; }); }
+    else { addDay(k); setWeekStart(startOfWeek(keyToDate(k))); }
+  };
 
   const shiftMonth = d => setMonth(({ y, m }) => { const x = new Date(y, m + d, 1); return { y: x.getFullYear(), m: x.getMonth() }; });
   const cur = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -117,7 +145,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const submit = async () => {
     setBusy(true); setError("");
     try {
-      const picks = sorted.map(k => ({ key: k, label: labelOf(k), start: toHHMM(start), end: toHHMM(end) }));
+      const picks = sorted.map(k => ({ key: k, label: labelOf(k), start: toHHMM(tOf(k).start), end: toHHMM(tOf(k).end), event: nameOf(k) }));
       const failed = (await onSubmit(room, picks, bookingOrg, eventName.trim())) || [];
       if (failed.length === 0) { setDone(true); return; }
       setDates(failed.map(f => f.pick.key)); setConfirming(false);
@@ -129,7 +157,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const joinWl = async () => {
     setBusy(true); setError(""); setWlMsg("");
     try {
-      const picks = conflicts.map(k => ({ key: k, label: labelOf(k), start: toHHMM(start), end: toHHMM(end) }));
+      const picks = conflicts.map(k => ({ key: k, label: labelOf(k), start: toHHMM(tOf(k).start), end: toHHMM(tOf(k).end), event: nameOf(k) }));
       const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName.trim())) || [];
       const ok = picks.length - failed.length;
       if (ok) setWlMsg(`✓ You joined the waitlist for ${ok} time slot${ok === 1 ? "" : "s"}. See your spot under My requests.`);
@@ -141,20 +169,18 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
   // Wide layout: click or drag on the calendar to add that day and use that time.
   const pickInline = (key, s, e) => {
-    setDates(ds => ds.includes(key) ? ds : [...ds, key]);
-    setStart(s); setEnd(e); setError("");
+    addDay(key, s, e); setError("");   // this day gets this time; the other days keep theirs
     const d = keyToDate(key); setMonth({ y: d.getFullYear(), m: d.getMonth() });
   };
   const mineEvents = sorted.map(k => {
     const d = keyToDate(k);
-    return { id: `mine-${k}`, kind: "mine", title: eventName.trim() || "Your choice", sub: conflicts.includes(k) ? "Overlaps another booking" : "Your request",
-      start: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, start), end: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, end) };
+    return { id: `mine-${k}`, kind: "mine", title: nameOf(k) || "Your choice", sub: conflicts.includes(k) ? "Overlaps another booking" : "Your request",
+      start: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, tOf(k).start), end: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, tOf(k).end) };
   });
 
   // A time picked on the big calendar: add that day and use its time.
   const pickFromCalendar = ({ key, start: s, end: e }) => {
-    setDates(ds => ds.includes(key) ? ds : [...ds, key]);
-    setStart(s); setEnd(e); setShowCal(false); setError("");
+    addDay(key, s, e); setShowCal(false); setError("");
     const d = keyToDate(key); setMonth({ y: d.getFullYear(), m: d.getMonth() });
   };
 
@@ -203,10 +229,9 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               <div style={{ border:"2px solid var(--ink)", borderRadius:10, padding:"14px 16px", background:"var(--paper)" }}>
                 <div style={{ fontWeight:700, fontSize:17 }}>{room.name}</div>
                 <div style={{ fontSize:14, color:"var(--ink-faint)", marginBottom:8 }}>{room.building}</div>
-                <div style={{ fontSize:15, marginBottom:6 }}>Event: <b>{eventName.trim()}</b></div>
+                {!sorted.some(k => nameOf(k) !== eventName.trim()) && <div style={{ fontSize:15, marginBottom:6 }}>Event: <b>{eventName.trim()}</b></div>}
                 {bookingOrg && <div style={{ fontSize:15, marginBottom:6 }}>Booking for: <b>{bookingOrg}</b></div>}
-                <div style={{ fontSize:15, marginBottom:6 }}>Time: <b>{fmt12(start)} – {fmt12(end)}</b></div>
-                {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}>{labelOf(k)}</div>)}
+                {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}><b>{labelOf(k)}</b> · {fmt12(tOf(k).start)} – {fmt12(tOf(k).end)}{sorted.some(j => nameOf(j) !== eventName.trim()) && <> · {nameOf(k)}</>}</div>)}
               </div>
             </div>
           )}
@@ -216,7 +241,8 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               color:"var(--red)", border:"2px solid var(--red)", fontSize:14, fontWeight:600 }}>
               Couldn't load this room's schedule ({schedErr}), so some times may look free when they aren't. Change months or reopen to retry.</div>}
             <div style={{ marginBottom:18 }}>
-              <div style={{ fontSize:15.6, fontWeight:700, marginBottom:8 }}>Event name</div>
+              <div style={{ fontSize:15.6, fontWeight:700, marginBottom:2 }}>Event name</div>
+              <div style={{ fontSize:13.5, color:"var(--ink-faint)", marginBottom:8 }}>Used for every day. If a day is a different event, give it its own name in "Your selection". You can leave this blank if every day has its own name.</div>
               <input value={eventName} onChange={e => setEventName(e.target.value)} maxLength={100} placeholder="e.g. Spring showcase rehearsal"
                 style={{ width:"100%", padding:"10px 12px", fontSize:15, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" }} />
             </div>
@@ -262,7 +288,8 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               </div>
             </div>
 
-            <div style={{ fontSize:15.6, fontWeight:700, margin:"20px 0 10px" }}>Choose a time — same for every day</div>
+            <div style={{ fontSize:15.6, fontWeight:700, margin:"20px 0 2px" }}>Choose a time</div>
+            <div style={{ fontSize:13.5, color:"var(--ink-faint)", marginBottom:10 }}>This is the time for days you add. Each day below can have its own time.</div>
             <div style={{ border:"2px solid var(--ink)", borderRadius:12, padding:"14px 14px 10px", background:"var(--paper)" }}>
               <div style={{ display:"flex", gap:12, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
                 <label style={{ fontSize:14, fontWeight:600, color:"var(--ink-soft)" }}>From{" "}
@@ -290,15 +317,31 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
             {sorted.length > 0 && (
               <div style={{ background:"var(--blue-wash)", borderRadius:10, padding:"13px 15px", marginTop:18 }}>
-                <div style={{ fontSize:15.6, fontWeight:700, marginBottom:8 }}>Your selection ({sorted.length} day{sorted.length === 1 ? "" : "s"})</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:15.6, fontWeight:700 }}>Your selection ({sorted.length} day{sorted.length === 1 ? "" : "s"})</div>
+                  {sorted.length > 1 && <button onClick={sameForAll} style={{ color:"var(--link)", fontWeight:700, fontSize:13.5, textDecoration:"underline" }}>Use {fmt12(tOf(sorted[0]).start)} – {fmt12(tOf(sorted[0]).end)} for every day</button>}
+                </div>
                 {sorted.map(k => {
-                  const o = overlaps(k);
+                  const o = overlaps(k), t = tOf(k);
                   return (
-                    <div key={k} style={{ padding:"5px 0", color:"var(--ink-soft)", fontSize:15.5 }}>
+                    <div key={k} style={{ padding:"7px 0", color:"var(--ink-soft)", fontSize:15.5, borderTop:"1px solid var(--line)" }}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                        <span><b style={{ color:"var(--ink)" }}>{labelOf(k)}</b> · {fmt12(start)} – {fmt12(end)}</span>
+                        <b style={{ color:"var(--ink)" }}>{labelOf(k)}</b>
                         <button onClick={() => toggleDate(k)} aria-label={`Remove ${labelOf(k)}`} style={{ fontSize:19, color:"var(--ink-faint)" }}>×</button>
                       </div>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", margin:"4px 0" }}>
+                        <label style={{ fontSize:13.5, fontWeight:600 }}>From{" "}
+                          <input type="time" step={900} value={toHHMM(t.start)} aria-label={`${labelOf(k)} start time`} style={{ ...timeBox, padding:"6px 8px", fontSize:14.5 }}
+                            onChange={e => { const v = fromHHMM(e.target.value); if (v !== null) setDayTime(k, "start", v); }} />
+                        </label>
+                        <label style={{ fontSize:13.5, fontWeight:600 }}>To{" "}
+                          <input type="time" step={900} value={toHHMM(t.end)} aria-label={`${labelOf(k)} end time`} style={{ ...timeBox, padding:"6px 8px", fontSize:14.5 }}
+                            onChange={e => { const v = fromHHMM(e.target.value); if (v !== null) setDayTime(k, "end", v); }} />
+                        </label>
+                      </div>
+                      <input value={names[k] || ""} onChange={e => setNames(n => ({ ...n, [k]: e.target.value }))} maxLength={100}
+                        placeholder={eventName.trim() ? `Event name (same as above: ${eventName.trim()})` : "Event name for this day"} aria-label={`${labelOf(k)} event name`}
+                        style={{ width:"100%", padding:"7px 10px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none", margin:"2px 0 4px" }} />
                       {(o.booked.length > 0 || o.requested.length > 0) && <div style={{ color:"var(--red)", fontWeight:600, fontSize:14 }}>
                         Time conflict: {o.booked.length > 0
                           ? `already booked ${o.booked.map(([s, e]) => `${fmt12(s)}–${fmt12(e)}`).join(", ")}`
@@ -311,7 +354,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
             {wlMsg && <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
             {conflicts.length > 0 && !needOrg && onJoinWaitlist && (
-              <WaitlistOffer eventName={eventName} roomName={room.name} days={conflicts} start={start} end={end} line={waitlistLine} busy={busy} onJoin={joinWl} />
+              <WaitlistOffer named={conflicts.every(k => nameOf(k))} roomName={room.name} days={conflicts} start={start} end={end} times={times} line={waitlistLine} busy={busy} onJoin={joinWl} />
             )}
           </div>
         </div>
@@ -335,14 +378,14 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               {needOrg ? "Choose a club to continue"
                 : sorted.length === 0 ? "Pick at least one day"
                 : conflicts.length ? "Time conflict: join the waitlist or change the time"
-                : !eventName.trim() ? "Add an event name to continue"
+                : !sorted.every(k => nameOf(k)) ? "Add an event name to continue"
                 : `Review ${sorted.length} request${sorted.length === 1 ? "" : "s"}`}
             </button>
           )}
         </div>
         </div>
       </div>
-      {showCal && !wide && <BookingCalendar room={room} dates={dates} start={start} end={end} onPick={pickFromCalendar} onClose={() => setShowCal(false)} />}
+      {showCal && !wide && <BookingCalendar room={room} picks={sorted.map(k => ({ key: k, ...tOf(k) }))} onPick={pickFromCalendar} onClose={() => setShowCal(false)} />}
     </>
   );
 }

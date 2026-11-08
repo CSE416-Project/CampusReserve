@@ -172,7 +172,8 @@ export default function App() {
       await loadRequests(role, rooms);
       return failed;
     }
-    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:eventName }))]);
+    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:p.event || eventName,
+      startAt:new Date(`${p.key}T${p.start}`), endAt:new Date(`${p.key}T${p.end}`) }))]);
     return [];
   };
   const decide = async (id,status,reason) => {
@@ -212,7 +213,8 @@ export default function App() {
       setMockWl(m => ({ ...m, [room.id]:[...(m[room.id] || []), ...picks.map((p,i) => ({ position:pos[i],
         start:`${p.key}T${p.start}:00`, end:`${p.key}T${p.end}:00`, is_yours:true, request_id:`mock-${Date.now()}-${i}` }))] }));
       setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`,
-        status:"waitlisted", position:pos[i], event:eventName }))]);
+        status:"waitlisted", position:pos[i], event:p.event || eventName,
+        startAt:new Date(`${p.key}T${p.start}`), endAt:new Date(`${p.key}T${p.end}`) }))]);
       return [];
     }
     const orgId = orgIds[org];
