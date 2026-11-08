@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { ROOMS, ALL_FEATURES, BUILDINGS, TYPES, STATUS } from '../data/mock.js';
+import { STATUS } from '../status.js';
 import Pill from '../components/Pill.jsx';
 import LoadingScreen from '../components/LoadingScreen.jsx';
 import Feature from '../components/Feature.jsx';
@@ -9,13 +9,30 @@ import useDialog from '../a11y/useDialog.js';
 import { useIsPhone, useScrollLock } from '../useMedia.js';
 
 const PAGE_SIZE = 10;
+const ALL_BUILDINGS = "All buildings";   // the "no building filter" option
+const ANY_TYPE = "Any type";             // the "no type filter" option
+// "Meeting Room", "meeting room" and "Meeting  room " are the same option: compare by this key.
+const norm = v => String(v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+// One option per key. The label is the spelling used most often (ties go to the one that starts with a capital).
+const uniqSorted = list => {
+  const byKey = new Map();
+  for (const v of list) {
+    const k = norm(v); if (!k) continue;
+    const label = String(v).trim().replace(/\s+/g, " ");
+    const counts = byKey.get(k) || new Map();
+    counts.set(label, (counts.get(label) || 0) + 1);
+    byKey.set(k, counts);
+  }
+  const pick = counts => [...counts].sort((a, b) => b[1] - a[1] || (/^[A-Z]/.test(b[0]) - /^[A-Z]/.test(a[0])))[0][0];
+  return [...byKey.values()].map(pick).sort((a, b) => a.localeCompare(b, undefined, { sensitivity:"base" }));
+};
 
-export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = false }) {
-  const buildings = useMemo(()=> rooms===ROOMS ? BUILDINGS : [BUILDINGS[0], ...[...new Set(rooms.map(r=>r.building))].sort()],[rooms]);
-  const types = useMemo(()=> rooms===ROOMS ? TYPES : [TYPES[0], ...[...new Set(rooms.map(r=>r.type))].sort()],[rooms]);
-  // Live rooms have their own features (25Live names and our tags), not the mock list.
-  const allFeatures = useMemo(()=> rooms===ROOMS ? ALL_FEATURES : [...new Set(rooms.flatMap(r=>r.features))].sort(),[rooms]);
-  const [q,setQ]=useState(""); const [building,setBuilding]=useState(BUILDINGS[0]); const [type,setType]=useState(TYPES[0]);
+export default function FindSpace({ onView, onBook, rooms = [], loading = false }) {
+  // Dropdown and feature options come from the rooms we were given (live rooms, or App's mock rooms when not live).
+  const buildings = useMemo(()=> [ALL_BUILDINGS, ...uniqSorted(rooms.map(r=>r.building))],[rooms]);
+  const types = useMemo(()=> [ANY_TYPE, ...uniqSorted(rooms.map(r=>r.type))],[rooms]);
+  const allFeatures = useMemo(()=> uniqSorted(rooms.flatMap(r=>r.features || [])),[rooms]);
+  const [q,setQ]=useState(""); const [building,setBuilding]=useState(ALL_BUILDINGS); const [type,setType]=useState(ANY_TYPE);
   const [minCap,setMinCap]=useState(0);
   // "Available on" filter: date + from + to (live mode only)
   const [date,setDate]=useState(""); const [from,setFrom]=useState(""); const [to,setTo]=useState("");
@@ -37,14 +54,15 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
   const [picked,setPicked]=useState([]); const [fq,setFq]=useState("");
   const [page,setPage]=useState(1);
   const toggle = f => setPicked(p => p.includes(f) ? p.filter(x=>x!==f) : [...p,f]);
+  const hasFeature = (r, f) => (r.features || []).some(x => norm(x) === norm(f));
   const shownFeatures = allFeatures.filter(f => f.toLowerCase().includes(fq.toLowerCase()));
 
   const filtered = useMemo(()=>rooms.filter(r=>{
     if (q && !`${r.name} ${r.building}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (building!==BUILDINGS[0] && r.building!==building) return false;
-    if (type!==TYPES[0] && r.type!==type) return false;
+    if (building!==ALL_BUILDINGS && norm(r.building)!==norm(building)) return false;
+    if (type!==ANY_TYPE && norm(r.type)!==norm(type)) return false;
     if (minCap && r.cap < minCap) return false;
-    if (!picked.every(f => r.features.includes(f))) return false;
+    if (!picked.every(f => hasFeature(r, f))) return false;
     if (avail.map && (takenKind(r) || r.closed) && !showTaken) return false;
     return true;
   }),[rooms,q,building,type,minCap,picked,avail.map,showTaken]);
@@ -61,11 +79,11 @@ export default function FindSpace({ onView, onBook, rooms = ROOMS, loading = fal
   const panel = useRef(null);
   useDialog(panel, { open: sheetOpen, onClose: () => setSheet(false) });
   useScrollLock(sheetOpen);
-  const activeFilters = (building!==BUILDINGS[0]) + (type!==TYPES[0]) + (minCap>0) + picked.length + (date||from||to ? 1 : 0) + (showTaken ? 1 : 0);
+  const activeFilters = (building!==ALL_BUILDINGS) + (type!==ANY_TYPE) + (minCap>0) + picked.length + (date||from||to ? 1 : 0) + (showTaken ? 1 : 0);
   // Reset search: every field back to how the page starts.
   const searchUsed = activeFilters > 0 || q !== "" || fq !== "";
   const resetAll = () => {
-    setQ(""); setBuilding(BUILDINGS[0]); setType(TYPES[0]); setMinCap(0);
+    setQ(""); setBuilding(ALL_BUILDINGS); setType(ANY_TYPE); setMinCap(0);
     setPicked([]); setFq(""); setDate(""); setFrom(""); setTo(""); setShowTaken(false);
   };
 

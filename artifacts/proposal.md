@@ -107,6 +107,7 @@ None of these are scaffolding an agent generates in one pass; the state-consiste
 - **NFR-7 — Status latency.** A change in a room's status is reflected to other users within a few seconds.
 - **NFR-8 — No false availability.** The system never shows a space as available when it is booked in 25Live, already approved in CampusReserve, closed, or not yet open for booking, and never shows a room as free when 25Live could not be checked. Spaces that other groups have pending requests for are flagged as contested.
 - **NFR-9 — No double-booking.** Two approved bookings for the same room can never overlap, enforced by the database itself as well as by the booking logic.
+- **NFR-10 — Speed.** Through pagination, the system will show only a set amount of data at a time to speed up loading
 
 ## 6. User Feedback on 25Live
 

@@ -50,7 +50,7 @@ export default function App() {
   // ---- live mode (FastAPI server) ----
   const [dataLoading,setDataLoading]=useState(false);   // true while a live login loads its first data
   const [rooms,setRooms]=useState(api.LIVE ? [] : ROOMS);
-  const [roomsLoading,setRoomsLoading]=useState(false);
+  const [roomsLoading,setRoomsLoading]=useState(api.LIVE);   // live: loading until the first room list arrives
   const [apiError,setApiError]=useState("");
 
   // clubs: mock data by default; the database's organizations in live mode
