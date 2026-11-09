@@ -87,6 +87,9 @@ export const adaptClub = o => ({ id:o.id, name:o.name, category:null, bio:o.desc
 export const rooms = () => call("/rooms");
 export const roomSchedule = (id, startKey, endKey) =>
   call(`/rooms/${encodeURIComponent(id)}/schedule?start=${startKey}&end=${endKey}`);
+// Official 25Live bookings for a list of rooms (the admin calendar).
+export const live25Schedule = (startKey, endKey, ids) =>
+  call(`/rooms/live25-schedule?start=${startKey}&end=${endKey}&room_ids=${ids.join(",")}`);
 export const buildings = ({ includeLocation = false } = {}) =>
   call(`/rooms/buildings${includeLocation ? "?include_location=true" : ""}`);
 
@@ -169,7 +172,7 @@ export function busyFromSchedule(items) {
 const hhmm = m => `${p2(Math.floor(m / 60))}:${p2(m % 60)}`;
 // One booking request for a picked day and time range ("HH:MM" start/end).
 export function requestBody(room, orgId, pick, eventName) {
-  return { organization_id: orgId, room_id: String(room.id), event_name: eventName || "Club event",
+  return { organization_id: orgId, room_id: String(room.id), event_name: pick.event || eventName || "Club event",
     start_time: `${pick.key}T${pick.start}`, end_time: `${pick.key}T${pick.end}` };
 }
 export { hhmm };

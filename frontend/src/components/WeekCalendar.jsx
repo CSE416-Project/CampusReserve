@@ -15,6 +15,8 @@ export const KINDS = {
   approved: { label: "Approved",         bg: "var(--green-wash)", border: "var(--green)",     fg: "var(--ink)" },
   pending:  { label: "Requested",        bg: "var(--amber-wash)", border: "var(--amber)",     fg: "var(--ink)", dashed: true },
   waitlist: { label: "Waitlist",         bg: "var(--card)",       border: "var(--ink-faint)", fg: "var(--ink-soft)", dashed: true },
+  denied:   { label: "Denied",           bg: "var(--red-wash)",   border: "var(--red)",       fg: "var(--ink)" },
+  cancelled:{ label: "Cancelled",        bg: "var(--slate-wash)", border: "var(--ink-faint)", fg: "var(--ink-soft)", dashed: true },
   closed:   { label: "Closed",           bg: "var(--line)",       border: "var(--ink-faint)", fg: "var(--ink-soft)", hatch: true },
   mine:     { label: "Your choice",      bg: "var(--blue)",       border: "var(--ink)",       fg: "var(--ink)" },
 };
@@ -39,6 +41,7 @@ const fmtDay = d => d.toLocaleDateString("en-US", { weekday: "long", month: "lon
 function eventDetails(ev) {
   const st = KINDS[ev.kind] || KINDS.booked;
   const lines = [];
+  for (const row of ev.details || []) lines.push(row);   // extras from the page: Room, Club, Event, ...
   lines.push(["When", `${fmtDay(ev.start)}, ${fmtT(ev.start)} – ${fmtT(ev.end)}`]);
   const bs = ev.blockedStart, be = ev.blockedEnd;
   if (bs && be && (bs.getTime() !== ev.start.getTime() || be.getTime() !== ev.end.getTime()))
@@ -51,6 +54,7 @@ function eventDetails(ev) {
   const note = {
     booked: "This time is taken.", approved: "Approved. This time is taken.", pending: "Requested by a club, waiting for approval. It may still open up.",
     waitlist: "Someone is waiting for this time if it opens up.", closed: "The room isn't available then.", mine: "The time you picked.",
+    denied: "This request was not approved.", cancelled: "This request was cancelled.",
   }[ev.kind];
   return { st, lines, note };
 }

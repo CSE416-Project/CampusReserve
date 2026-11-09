@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ROOMS, upcomingEvents } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
-import WeekCalendar, { CalendarLegend, startOfWeek } from '../components/WeekCalendar.jsx';
+import WeekCalendar, { CalendarLegend, startOfWeek, addDays, dayKey } from '../components/WeekCalendar.jsx';
+import { live25Schedule } from '../api.js';
 import { useRoomWeek } from '../calendarData.js';
 
 const ALL = "All buildings";
@@ -197,9 +198,10 @@ function RoomCalendar({ rooms, requests, live }) {
   const [pick, setPick] = useState(live ? ALL_ROOMS : String(rooms[0].id));
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   // keep the choice valid if the filters above remove the chosen room
-  const room = pick === ALL_ROOMS ? null : rooms.find(r => String(r.id) === pick) || null;
-  const effective = pick === ALL_ROOMS && live ? ALL_ROOMS : (room ? String(room.id) : String(rooms[0].id));
-  const chosen = effective === ALL_ROOMS ? null : (room || rooms[0]);
+  const isAll = pick === ALL_ROOMS;
+  const room = isAll ? null : rooms.find(r => String(r.id) === pick) || null;
+  const effective = isAll && live ? pick : (room ? String(room.id) : String(rooms[0].id));
+  const chosen = isAll && live ? null : (room || rooms[0]);
   const { events: roomEvents, loading, error, retry } = useRoomWeek(chosen, weekStart);
 
   const byBuilding = useMemo(() => {
@@ -212,10 +214,44 @@ function RoomCalendar({ rooms, requests, live }) {
   // "All rooms": the club requests for the rooms shown, from the requests the admin already has.
   const requestEvents = useMemo(() => requests
     .filter(r => r.startAt && r.room && visibleIds.has(r.room.id) && ["approved", "pending", "waitlisted"].includes(r.status))
-    .map(r => ({ id: r.id, start: r.startAt, end: r.endAt, title: r.room.name, sub: [r.org, r.event].filter(Boolean).join(" · "),
+    .map(r => ({ id: r.id, roomId: String(r.room.id), start: r.startAt, end: r.endAt, title: r.room.name, sub: [r.org, r.event].filter(Boolean).join(" · "),
+      details: [["Event", r.event || "Club request"], ["Club", r.org], ["Room", [r.room.name, r.room.building].filter(Boolean).join(" · ")]],
       kind: r.status === "approved" ? "approved" : r.status === "waitlisted" ? "waitlist" : "pending" })), [requests, visibleIds]);
 
-  const events = chosen ? roomEvents : requestEvents;
+  // "All rooms" also shows what's booked in 25Live for the rooms listed, for the week on screen.
+  const liveIds = useMemo(() => rooms.filter(r => r.live && /^\d+$/.test(String(r.id))).map(r => String(r.id)), [rooms]);
+  const MAX_LIVE_ROOMS = 400;
+  const tooMany = liveIds.length > MAX_LIVE_ROOMS;   // all buildings at once: too much to draw, so club requests only
+  const wantLive25 = !chosen && live && !tooMany && liveIds.length > 0;
+  const liveCache = useRef(new Map());
+  const [l25, setL25] = useState({ loading: false, error: "", n: 0 });
+  const [retryN, setRetryN] = useState(0);
+  const l25Key = `${dayKey(weekStart)}|${liveIds.join(",")}`;
+  useEffect(() => {
+    if (!wantLive25) { setL25({ loading: false, error: "", n: 0 }); return; }
+    if (liveCache.current.has(l25Key)) { setL25({ loading: false, error: "", n: liveCache.current.size }); return; }
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const last = addDays(weekStart, 6);
+    if (last < today) { liveCache.current.set(l25Key, []); setL25({ loading: false, error: "", n: liveCache.current.size }); return; }
+    let off = false;
+    setL25({ loading: true, error: "", n: 0 });
+    live25Schedule(dayKey(weekStart < today ? today : weekStart), dayKey(last), liveIds)
+      .then(items => { liveCache.current.set(l25Key, items); if (!off) setL25({ loading: false, error: "", n: liveCache.current.size }); })
+      .catch(e => { if (!off) setL25({ loading: false, error: e.message || "Couldn't load 25Live bookings.", n: 0 }); });
+    return () => { off = true; };
+  }, [l25Key, wantLive25, retryN]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const liveEvents = useMemo(() => {
+    if (!wantLive25) return [];
+    const mine = new Set(requestEvents.map(e => `${e.roomId}|${Math.floor(e.start / 60000)}|${Math.floor(e.end / 60000)}`));
+    return (liveCache.current.get(l25Key) || [])
+      .filter(it => !mine.has(`${it.room_id}|${Math.floor(new Date(it.event_start) / 60000)}|${Math.floor(new Date(it.event_end) / 60000)}`))   // already shown as a club request
+      .map((it, i) => ({ id: `25l-${i}-${it.room_id}-${it.start}`, start: new Date(it.event_start), end: new Date(it.event_end),
+        blockedStart: new Date(it.start), blockedEnd: new Date(it.end), title: it.room_name, sub: it.name, kind: "booked", source: "25live",
+        details: [["Event", it.name], ["Room", [it.room_name, it.building].filter(Boolean).join(" · ")]] }));
+  }, [l25Key, l25.n, l25.loading, wantLive25, requestEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const events = chosen ? roomEvents : [...liveEvents, ...requestEvents];
 
   return (
     <div>
@@ -229,18 +265,25 @@ function RoomCalendar({ rooms, requests, live }) {
           </select>
         </label>
         <span style={{ fontSize:13.5, color:"var(--ink-faint)" }}>
-          {chosen ? `${chosen.building} · holds ${chosen.cap}` : "Shows club requests only. Pick one room to also see 25Live bookings and closures."}
+          {chosen ? `${chosen.building} · holds ${chosen.cap}`
+            : tooMany ? "Showing club requests only. Pick a building above to also see what's booked in 25Live."
+            : "Shows 25Live bookings and club requests for the rooms listed above. Pick one room to also see closures."}
         </span>
       </div>
 
+      {l25.error && (
+        <div role="alert" style={{ marginBottom:12, padding:"10px 14px", borderRadius:10, background:"var(--red-wash)", color:"var(--red)", border:"2px solid var(--red)", fontSize:14, fontWeight:600 }}>
+          Couldn't load 25Live bookings ({l25.error}). Club requests are still shown. <button onClick={() => setRetryN(n => n + 1)} style={{ color:"var(--link)", fontWeight:700, textDecoration:"underline" }}>Try again</button>
+        </div>
+      )}
       {error && (
         <div role="alert" style={{ marginBottom:12, padding:"10px 14px", borderRadius:10, background:"var(--red-wash)", color:"var(--red)", border:"2px solid var(--red)", fontSize:14, fontWeight:600 }}>
           Couldn't load this room's schedule ({error}). <button onClick={retry} style={{ color:"var(--link)", fontWeight:700, textDecoration:"underline" }}>Try again</button>
         </div>
       )}
-      <WeekCalendar weekStart={weekStart} onWeekChange={setWeekStart} events={events} loading={chosen ? loading : false} maxHeight={600} />
-      <CalendarLegend kinds={chosen ? ["booked", "approved", "pending", "waitlist", "closed"] : ["approved", "pending", "waitlist"]} />
-      {!chosen && events.length === 0 && <div style={{ marginTop:12, fontSize:14, color:"var(--ink-faint)" }}>No club requests to show. Use the arrows to look at other weeks.</div>}
+      <WeekCalendar weekStart={weekStart} onWeekChange={setWeekStart} events={events} loading={chosen ? loading : l25.loading} maxHeight={600} />
+      <CalendarLegend kinds={chosen ? ["booked", "approved", "pending", "waitlist", "closed"] : ["booked", "approved", "pending", "waitlist"]} />
+      {!chosen && events.length === 0 && <div style={{ marginTop:12, fontSize:14, color:"var(--ink-faint)" }}>Nothing to show this week. Use the arrows to look at other weeks.</div>}
     </div>
   );
 }

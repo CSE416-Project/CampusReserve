@@ -661,6 +661,66 @@ async def rooms_map(
                     longitude=coords.get(r["id"], (None, None))[1]) for r in rooms]
 
 
+class Live25BookingItem(BaseModel):
+    room_id: str
+    room_name: str
+    building: str | None = None
+    name: str                      # the 25Live event's name
+    status: str | None = None      # Confirmed / Tentative
+    start: dt.datetime             # room held from (includes setup)
+    end: dt.datetime
+    event_start: dt.datetime
+    event_end: dt.datetime
+
+
+MAX_LIVE25_ROOMS = 400
+
+
+@router.get("/live25-schedule", response_model=list[Live25BookingItem])
+async def live25_schedule(
+    start: dt.date | None = None,
+    end: dt.date | None = None,
+    room_ids: str = Query("", description="Comma-separated 25Live room ids (at most 400)"),
+    all_rooms: bool = Query(False, description="Every 25Live room, instead of a list of ids"),
+    db: Session = Depends(get_db),
+    current_user: User = Security(get_current_user, scopes=["read:rooms"]),
+):
+    """The official 25Live bookings for many rooms at once, from `start` through `end`
+    (default a week, max 8 days). For a calendar that shows several rooms together.
+    Answers from the background-refreshed cache, like the availability search."""
+    start = start or campus_now().date()
+    end = end or start + dt.timedelta(days=6)
+    if end < start:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="end is before start.")
+    end = min(end, start + dt.timedelta(days=7))
+    merged = {r["id"]: r for r in await _merged_rooms(db)}
+    if all_rooms:
+        ids = [i for i in merged if str(i).isdigit()]
+    else:
+        ids = list(dict.fromkeys(i for i in (x.strip() for x in room_ids.split(",")) if i.isdigit()))
+    if not all_rooms and len(ids) > MAX_LIVE25_ROOMS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Too many rooms ({len(ids)}). Narrow the filters to {MAX_LIVE25_ROOMS} or fewer.")
+    window_start = dt.datetime.combine(start, dt.time())
+    window_end = dt.datetime.combine(end + dt.timedelta(days=1), dt.time())
+
+    names = merged
+    results = await asyncio.gather(*(live25.get_bookings(i, start, end) for i in ids), return_exceptions=True)
+    out = []
+    for room_id, bookings in zip(ids, results):
+        if isinstance(bookings, Exception):
+            continue   # one room 25Live can't answer for shouldn't hide the rest
+        room = names.get(room_id, {})
+        for b in bookings:
+            if b["kind"] != "event" or not (b["start"] < window_end and b["end"] > window_start):
+                continue
+            out.append(Live25BookingItem(room_id=room_id, room_name=room.get("name") or room_id, building=room.get("building"),
+                                         name=b["name"] or "25Live booking", status=b["state"], start=b["start"], end=b["end"],
+                                         event_start=b["event_start"], event_end=b["event_end"]))
+    out.sort(key=lambda i: (i.start, i.room_name))
+    return out
+
+
 @router.get("/{room_id}/photo")
 async def room_photo(
     room_id: str,
