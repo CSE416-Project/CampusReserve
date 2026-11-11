@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -30,6 +31,14 @@ class RegisterRequest(BaseModel):
     password: str
 
 
+class GeneralRegisterRequest(BaseModel):
+    """A general account: just a username and a password."""
+    # Letters, numbers, dots, dashes and underscores. No "@", so a username can
+    # never be mistaken for an email at login.
+    username: str = Field(min_length=3, max_length=30, pattern=r"^[A-Za-z0-9._-]+$")
+    password: str = Field(min_length=8, max_length=128)
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
@@ -50,7 +59,8 @@ class ResetPasswordRequest(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
-    email: EmailStr
+    email: EmailStr | None = None      # general accounts have no email
+    username: str | None = None        # only general accounts have one
     name: str
     role: UserRole
 
@@ -87,7 +97,34 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     _email_verify_link(user, raw)
-    return UserResponse(id=str(user.id), email=user.email, name=user.name, role=user.role)
+    return _user_response(user)
+
+
+def _user_response(user: User) -> UserResponse:
+    return UserResponse(id=str(user.id), email=user.email, username=user.username,
+                        name=user.name, role=user.role)
+
+
+USERNAME_TAKEN = "That username is taken. Try another one."
+
+
+@router.post("/register-general", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register_general(payload: GeneralRegisterRequest, db: Session = Depends(get_db)):
+    """Create a general account with a username and password. No email and no
+    verification: it can log in right away, and can search rooms but not book them."""
+    username = payload.username.strip()
+    if db.query(User.id).filter(func.lower(User.username) == username.lower()).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=USERNAME_TAKEN)
+    user = User(username=username, email=None, name=username,
+                password_hash=hash_password(payload.password), role=UserRole.GENERAL)
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:  # someone took the same username a moment ago
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=USERNAME_TAKEN)
+    db.refresh(user)
+    return _user_response(user)
 
 
 def _email_verify_link(user: User, raw: str) -> None:
@@ -107,12 +144,13 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    """Log in with email (as the username field) and password; returns a token."""
+    """Log in with an email or a general account's username (in the username
+    field) and password; returns a token."""
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
+            detail="Incorrect email, username or password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     # Only said after the password was right, so this can't be used to find out who has an account.
@@ -180,12 +218,7 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
 @router.get("/me", response_model=UserResponse)
 def read_me(current_user: User = Depends(get_current_user)):
     """Return the currently logged-in user."""
-    return UserResponse(
-        id=str(current_user.id),
-        email=current_user.email,
-        name=current_user.name,
-        role=current_user.role,
-    )
+    return _user_response(current_user)
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)

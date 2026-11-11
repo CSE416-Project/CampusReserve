@@ -107,7 +107,7 @@ export default function RoomDetail({ room, onBack, onBook, role, orgs = [], orgI
           <h1 style={{ fontSize:34, fontWeight:800, margin:"10px 0 4px" }}>{room.name}</h1>
           <div className="rd-sub" style={{ fontSize:19, color:"var(--ink-faint)" }}>{room.building} · Holds {room.cap} · {room.type}</div>
         </div>
-        {!room.closed && (
+        {!room.closed && onBook && (
           <button className="rd-book" onClick={()=>onBook(room)} style={{ padding:"12px 22px", borderRadius:10, fontSize:19, fontWeight:700,
             color:"var(--ink)", background:"var(--blue)", height:"fit-content" }}>Book this room</button>
         )}
