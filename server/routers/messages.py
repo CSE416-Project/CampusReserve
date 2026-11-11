@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, aliased, selectinload
 from authentication import get_current_user
 from database import get_db
 from models.communication import Conversation, ConversationParticipant, Message, NotificationType
-from models.user import User
+from models.user import User, UserRole
 from services.notify import notify
 from services.pagination import Page, paged
 from services.permissions import as_uuid
@@ -35,7 +35,7 @@ EMAIL_QUIET_PERIOD = dt.timedelta(minutes=30)
 class PersonOut(BaseModel):
     id: str
     name: str
-    email: str
+    email: str | None = None
 
 
 class ParticipantOut(BaseModel):
@@ -139,6 +139,7 @@ def search_users(
         return []
     rows = (db.query(User)
             .filter(User.is_active.is_(True), User.id != user.id,
+                    User.role != UserRole.GENERAL,   # general accounts can't message
                     or_(func.lower(User.name).contains(term, autoescape=True),
                         func.lower(User.email).contains(term, autoescape=True)))
             .order_by(User.name, User.id))

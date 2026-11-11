@@ -28,7 +28,7 @@ import Analytics from './pages/Analytics.jsx';
 import Export25Live from './pages/Export25Live.jsx';
 
 const D = getDays(3);
-const HOME = { leader:"find", admin:"approvals", venue:"rooms" };
+const HOME = { leader:"find", admin:"approvals", venue:"rooms", general:"find" };
 
 export default function App() {
   const { path, navigate, back } = useRoute();
@@ -38,7 +38,7 @@ export default function App() {
   const [bootError,setBootError]=useState("");
   const afterLogin=useRef(null); // deep link the user wanted before being sent to /login
   const [role,setRole]=useState("leader");
-  const [profiles,setProfiles]=useState(PROFILES);
+  const [profiles,setProfiles]=useState(() => ({ ...PROFILES, general:{ name:"Guest", email:"", username:"guest" } }));
   const [openRoom,setOpenRoom]=useState(null);
 
   const [requests,setRequests]=useState(api.LIVE ? [] : [
@@ -140,9 +140,17 @@ export default function App() {
   const loadLive = async (r, user) => {
     setDataLoading(true); setRooms([]); setClubs([]);
     setRequests([]); setRoomsLoading(true); setApiError("");
-    setMemberships([]); setVerifs([]); setMemLoaded(r !== "leader"); loadClubs();
-    setProfiles(p => ({ ...p, [r]: { ...p[r], id:user.id, name:user.name, email:user.email } }));
-    setThreads([]); setPosts([]); loadConvos();
+    setMemberships([]); setVerifs([]); setMemLoaded(r !== "leader");
+    setProfiles(p => ({ ...p, [r]: { ...p[r], id:user.id, name:user.name, email:user.email || "", username:user.username || "" } }));
+    setThreads([]); setPosts([]);
+    if (r === "general") {
+      // General accounts can only search rooms; the server would refuse clubs, messages, forum and requests.
+      try { const list = (await api.rooms()).map(api.adaptRoom); setRooms(list); }
+      catch (e) { setApiError(e.message); }
+      setRoomsLoading(false); setDataLoading(false);
+      return;
+    }
+    loadClubs(); loadConvos();
     if (r !== "venue") { setPostsLoading(true); loadForum().then(() => setPostsLoading(false)); }
     // Start everything at once instead of one call after another. Rooms come from 25Live and are
     // the slowest, so requests don't wait for them: each request already carries its room's name.
@@ -304,7 +312,7 @@ export default function App() {
 
   // live: one refresher for everything other people can change
   useEffect(() => {
-    if (!api.LIVE || !signedIn) return;
+    if (!api.LIVE || !signedIn || role === "general") return;   // general accounts: nothing to keep fresh
     const jobs = [
       { every: page==="messages" ? 3000 : 12000, run: loadConvos },
       { every: ["approvals","requests","rooms"].includes(page) ? 5000 : 15000, run: () => loadRequests(role, rooms, { background:true }) },
@@ -416,7 +424,7 @@ export default function App() {
         <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfId={selfId} onBack={()=>back("/clubs")} onMessagePerson={messagePerson} />
       ) : viewingRoomId!=null ? (
         viewingRoom
-          ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={setOpenRoom} />
+          ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={role==="general" ? undefined : setOpenRoom} />
           : <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"24px", fontWeight:600 }}>
               {roomsLoading ? "Loading room…" : <>Room not found. <button onClick={()=>navigate("/find")} style={{ color:"var(--link)", fontWeight:700 }}>Back to search</button></>}
             </main>
@@ -424,6 +432,7 @@ export default function App() {
         <>
           {dataLoading && ["requests","approvals","verifications"].includes(page) && <LoadingScreen inline label="Loading your data…" />}
           {role==="leader" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} onBook={setOpenRoom} />}
+          {role==="general" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} />}
           {role==="leader" && page==="requests" && !dataLoading && <MyRequests onCancel={cancelRequest} clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
           {role==="admin" && page==="approvals" && !dataLoading && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
           {role==="admin" && page==="verifications" && !dataLoading && <Verifications items={verifs} onApprove={approveVerif} onReject={rejectVerif} onOpenClub={openClub} />}
@@ -436,15 +445,15 @@ export default function App() {
           {page==="profile" && <Profile key={role} role={role} profile={profiles[role]} onOpenClub={openClub}
             onSave={patch=>setProfiles(p=>({ ...p, [role]:{ ...p[role], ...patch } }))}
             memberships={memberships} membershipsLoaded={memLoaded} onSearchOrgs={searchOrgOptions} onJoin={joinOrg}
-            onChangePassword={api.LIVE ? api.changePassword : undefined} onForgotPassword={api.LIVE ? api.forgotPassword : undefined} />}
+            onChangePassword={api.LIVE ? api.changePassword : undefined} onForgotPassword={api.LIVE && role!=="general" ? api.forgotPassword : undefined} />}
           {page==="messages" && <Messages threads={threads} onSend={sendMessage} onStartChat={startChat}
             activeId={activeThread} setActiveId={setActiveThread} selfId={selfId} onSearchPeople={searchPeople} unreadMap={unreadMap} />}
           {page==="map" && <CampusMapPage rooms={rooms} loading={roomsLoading}
-            onView={role==="leader" ? openRoomDetail : undefined} onBook={role==="leader" ? setOpenRoom : undefined} />}
+            onView={role==="leader" || role==="general" ? openRoomDetail : undefined} onBook={role==="leader" ? setOpenRoom : undefined} />}
         </>
       )}
 
-      {openRoom && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={leaderOrgs}
+      {openRoom && role!=="general" && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={leaderOrgs}
         onJoinWaitlist={joinWaitlist} waitlistLine={api.LIVE ? waitlistLine : (mockWl[openRoom?.id] || [])} />}
     </div>
   );
