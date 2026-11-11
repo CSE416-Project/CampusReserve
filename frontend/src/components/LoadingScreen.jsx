@@ -21,6 +21,15 @@ const CSS = `
 .sw-tip{animation:sw-fade .5s ease}
 @keyframes sw-fade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion: reduce){.sw-wolf,.sw-waves path,.sw-paws span,.sw-tip{animation:none}.sw-paws span{opacity:.7}}
+
+/* Accessibility modes (dyslexia, reading support, text alignment): the loading screen stays one
+   centered column. The text keeps the chosen font and spacing; the "left-align" setting would
+   otherwise push the wolf and text left while the waves and paws stay centered, and the wider
+   line height would open a big gap under the wolf. */
+html[data-a11y-align] #root .sw-loading,
+html[data-a11y-align] #root .sw-loading * { text-align:center !important; }
+html[data-a11y-line-height] #root .sw-loading :is(.sw-wolf,.sw-paws,.sw-paws span) { line-height:1 !important; }
+html[data-a11y-letter-spacing] #root .sw-loading :is(.sw-wolf,.sw-paws,.sw-paws span) { letter-spacing:0 !important; word-spacing:0 !important; }
 `;
 
 // Seawolf-themed loading state. Use `inline` for a smaller version inside a page.
@@ -34,7 +43,7 @@ export default function LoadingScreen({ label = "Loading CampusReserve…", inli
   }, []);
 
   return (
-    <div role="status" aria-live="polite" style={{ textAlign: 'center', padding: inline ? '36px 20px' : '90px 20px' }}>
+    <div className="sw-loading" role="status" aria-live="polite" style={{ textAlign: 'center', padding: inline ? '36px 20px' : '90px 20px' }}>
       <style>{CSS}</style>
       <div className="sw-wolf" aria-hidden="true">🐺</div>
       <svg className="sw-waves" width="220" height="30" viewBox="0 0 220 30" aria-hidden="true">
