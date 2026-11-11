@@ -94,7 +94,7 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
 
   return (
     <main className="page" style={{ maxWidth:1400, margin:"0 auto", padding:"26px 24px 60px" }}>
-      <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>Find a space to book</h1>
+      <h1 style={{ fontSize:26, fontWeight:800, marginBottom:18 }}>{onBook ? "Find a space to book" : "Find a space"}</h1>
       <div className="filters-bar">
         <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search rooms or buildings" aria-label="Search rooms or buildings" />
         <button className="filters-btn" onClick={()=>setSheet(true)} data-on={activeFilters>0 || undefined} aria-haspopup="dialog">
@@ -160,7 +160,7 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
               {!date && !from && !to && <div style={{ fontSize:13, color:"var(--ink-faint)", marginBottom:6 }}>Pick a date and time to see only the rooms that are free then.</div>}
               <label style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:14, cursor:"pointer", marginTop:4 }}>
                 <input type="checkbox" checked={showTaken} onChange={e=>setShowTaken(e.target.checked)} style={{ marginTop:3, accentColor:"var(--blue)" }} />
-                <span>Also show rooms that are booked or requested then (you can join their waitlist)</span>
+                <span>Also show rooms that are booked or requested then{onBook ? " (you can join their waitlist)" : ""}</span>
               </label>
               {(date || from || to) && <button onClick={()=>{ setDate(""); setFrom(""); setTo(""); }}
                 style={{ fontSize:13, fontWeight:600, color:"var(--link)", marginTop:8 }}>Clear date and time</button>}
@@ -198,7 +198,7 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
           {!loading && avail.loading && <LoadingScreen inline label="Checking which rooms are free…" />}
           {!loading && !avail.loading && filtered.length===0 && <div style={{ textAlign:"center", padding:"50px 20px", color:"var(--ink-faint)",
             background:"var(--card)", borderRadius:14, border:"2px dashed var(--ink-faint)" }}>
-            <div>{avail.map ? "No spaces are free then. Try another time, or tick the box to see booked rooms you can waitlist." : "No spaces match those filters."}</div>
+            <div>{avail.map ? (onBook ? "No spaces are free then. Try another time, or tick the box to see booked rooms you can waitlist." : "No spaces are free then. Try another time, or tick the box to see the booked rooms too.") : "No spaces match those filters."}</div>
             {searchUsed && <button onClick={resetAll} style={{ marginTop:12, padding:"8px 16px", borderRadius:8, fontSize:14, fontWeight:700,
               color:"var(--ink)", background:"var(--blue)" }}>Reset search</button>}
           </div>}
@@ -234,8 +234,8 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
               {!r.closed && (
                 <div className="room-card-actions" style={{ display:"flex", gap:14, alignItems:"center" }}>
                   <span style={{ fontSize:14.5, fontWeight:600, color:"var(--link)" }}>View room details ›</span>
-                  <button onClick={e=>{ e.stopPropagation(); onBook(timeSet ? { ...r, prefill:{ date, from, to } } : r); }} style={{ marginLeft:"auto", padding:"8px 16px",
-                    borderRadius:8, fontSize:14, fontWeight:600, color:"var(--ink)", background:"var(--blue)" }}>{takenKind(r) ? "Join waitlist" : "Book"}</button>
+                  {onBook && <button onClick={e=>{ e.stopPropagation(); onBook(timeSet ? { ...r, prefill:{ date, from, to } } : r); }} style={{ marginLeft:"auto", padding:"8px 16px",
+                    borderRadius:8, fontSize:14, fontWeight:600, color:"var(--ink)", background:"var(--blue)" }}>{takenKind(r) ? "Join waitlist" : "Book"}</button>}
                 </div>
               )}
               </div>

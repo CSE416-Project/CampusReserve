@@ -649,7 +649,8 @@ def membership_out(m: OrganizationMember) -> MembershipOut:
 
 class UserAdminOut(BaseModel):
     id: str
-    email: str
+    email: str | None
+    username: str | None = None
     name: str
     role: str
     is_active: bool
@@ -657,7 +658,7 @@ class UserAdminOut(BaseModel):
 
 
 def user_out(u: User) -> UserAdminOut:
-    return UserAdminOut(id=str(u.id), email=u.email, name=u.name, role=u.role.value,
+    return UserAdminOut(id=str(u.id), email=u.email, username=u.username, name=u.name, role=u.role.value,
                         is_active=u.is_active,
                         memberships=[membership_out(m) for m in u.organization_memberships])
 
@@ -692,7 +693,8 @@ def list_users(
         q = q.filter(User.role == role)
     if search:
         like = f"%{search.lower()}%"
-        q = q.filter(or_(func.lower(User.name).like(like), func.lower(User.email).like(like)))
+        q = q.filter(or_(func.lower(User.name).like(like), func.lower(User.email).like(like),
+                         func.lower(User.username).like(like)))
     if awaiting_verification:
         q = q.join(OrganizationMember, OrganizationMember.user_id == User.id).filter(
             OrganizationMember.verified_at.is_(None)).distinct()
@@ -715,6 +717,9 @@ def update_user(
                                  (body.role and body.role != UserRole.ADMIN)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="You can't remove your own admin access.")
+    if body.role is not None and body.role != UserRole.GENERAL and not target.email:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="This account has no email, so it can only be a general account.")
     if body.role is not None:
         target.role = body.role
     if body.is_active is not None:

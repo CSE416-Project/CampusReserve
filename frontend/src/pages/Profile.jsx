@@ -64,6 +64,14 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
             <div style={{ fontSize:20, fontWeight:800 }}>{name}</div>
           </div>
         </div>
+        {role==="general" ? (<>
+          <label style={label}>Username
+            <input value={profile.username || profile.name} readOnly style={{ ...field, color:"var(--ink-faint)" }} />
+          </label>
+          <p style={{ marginTop:14, fontSize:14.5, color:"var(--ink-soft)", lineHeight:1.5 }}>
+            This is a general account: you can search rooms and see the campus map. To book rooms for a club,
+            log out and create an account with your SBU email.</p>
+        </>) : (<>
         <label style={label}>Full name
           <input value={name} onChange={e=>{ setName(e.target.value); setSaved(false); }} style={field} />
         </label>
@@ -74,6 +82,7 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
           <button onClick={()=>{ onSave({ name }); setSaved(true); }} style={primary}>Save changes</button>
           {saved && <span style={{ fontSize:14.5, color:"var(--green)", fontWeight:600 }}>✓ Saved</span>}
         </div>
+        </>)}
       </div>
 
       {role==="leader" && (
@@ -149,11 +158,17 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
           <button onClick={updatePassword} disabled={pwBusy} style={primary}>{pwBusy ? "Updating…" : "Update password"}</button>
           {pwMsg && <span role="status" style={{ fontSize:14.5, fontWeight:600, color: pwMsg.ok ? "var(--green)" : "var(--red)" }}>{pwMsg.text}</span>}
         </div>
+        {role==="general" ? (
+          <div style={{ marginTop:18, paddingTop:14, borderTop:"1px solid var(--line)", fontSize:14.5, color:"var(--ink-soft)" }}>
+            General accounts don't have an email, so we can't send a reset link. Keep your password somewhere safe.
+          </div>
+        ) : (
         <div style={{ marginTop:18, paddingTop:14, borderTop:"1px solid var(--line)", fontSize:14.5, color:"var(--ink-soft)" }}>
           Forgot your current password?{" "}
           <button onClick={emailReset} disabled={fpBusy} style={{ color:"var(--link)", fontWeight:700, fontSize:14.5, textDecoration:"underline" }}>{fpBusy ? "Sending…" : "Email me a reset link"}</button>
           {fpMsg && <div role="status" style={{ marginTop:8, fontWeight:600, color: fpMsg.ok ? "var(--green)" : "var(--red)" }}>{fpMsg.text}</div>}
         </div>
+        )}
       </div>
     </main>
   );

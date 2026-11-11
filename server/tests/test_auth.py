@@ -152,8 +152,8 @@ def test_me_returns_the_logged_in_user(client, auth, admin):
 
     assert r.status_code == 200
     body = r.json()
-    assert body == {"id": str(admin.id), "email": admin.email, "name": admin.name,
-                    "role": UserRole.ADMIN.value}
+    assert body == {"id": str(admin.id), "email": admin.email, "username": None,
+                    "name": admin.name, "role": UserRole.ADMIN.value}
 
 
 def test_me_without_a_token_is_401(client):
