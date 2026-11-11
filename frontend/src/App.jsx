@@ -424,7 +424,8 @@ export default function App() {
         <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfId={selfId} onBack={()=>back("/clubs")} onMessagePerson={messagePerson} />
       ) : viewingRoomId!=null ? (
         viewingRoom
-          ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={role==="general" ? undefined : setOpenRoom} />
+          ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={role==="general" ? undefined : setOpenRoom}
+          role={role} orgs={leaderOrgs} orgIds={orgIds} />
           : <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"24px", fontWeight:600 }}>
               {roomsLoading ? "Loading room…" : <>Room not found. <button onClick={()=>navigate("/find")} style={{ color:"var(--link)", fontWeight:700 }}>Back to search</button></>}
             </main>
