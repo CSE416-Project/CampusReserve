@@ -40,8 +40,9 @@ async def _live_bookings(space_id: str | None, window: Window) -> tuple[list[dic
     if not space_id or not space_id.isdigit():
         return [], None
     try:
-        return await live25.get_bookings(space_id, window.blocked_start.date(),
-                                         window.blocked_end.date()), None
+        # Includes the room's parts and its whole: booking a lobby table is blocked when the whole lobby is booked.
+        return await live25.get_bookings_with_related(space_id, window.blocked_start.date(),
+                                                      window.blocked_end.date()), None
     except live25.Live25Error as e:
         return [], str(e)
 

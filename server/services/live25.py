@@ -484,8 +484,12 @@ def parse_space_detail(data: dict) -> dict | None:
     default_layout = next((layout for layout in s.get("layouts") or [] if layout.get("defaultLayout")),
                           (s.get("layouts") or [None])[0]) or {}
 
+    rel = s.get("relationships") or {}
     return {
         "id": str(s.get("id")),
+        # 25Live links spaces: a whole lobby "divides into" its tables, and each table is a "subdivision of" the lobby.
+        "parent_ids": [str(r["spaceId"]) for r in rel.get("subdivisionOf") or [] if r.get("spaceId") is not None],
+        "child_ids": [str(r["spaceId"]) for r in rel.get("dividesInto") or [] if r.get("spaceId") is not None],
         "short_name": s.get("spaceName"),
         "name": s.get("spaceFormalName") or s.get("spaceName"),
         "capacity": _to_int(s.get("maxCapacity")),
@@ -534,6 +538,78 @@ async def get_space_details(space_ids: list[str]) -> dict[str, dict]:
             return i, None
 
     return {i: d for i, d in await asyncio.gather(*(one(i) for i in space_ids)) if d}
+
+
+# ---------------------------------------------------------------- related spaces
+# Some 25Live spaces are made of smaller bookable ones (a lobby and its tables).
+# Booking the whole takes every part; booking a part leaves the others free.
+
+def merge_related(own: list[dict], children: list[tuple[str, list[dict]]], parents: list[tuple[str, list[dict]]]) -> list[dict]:
+    """`own` bookings plus those of the related spaces, each event tagged with `space_name`
+    (the part it is in). 25Live may already list related events under `own`; those are tagged, not doubled."""
+    out = [dict(b) for b in own]
+    index = {(b["event_start"], b["event_end"], b["name"], b.get("space_name")): b for b in out if b["kind"] == "event"}
+    for label, bookings in [*children, *((f"Whole space: {n}", bs) for n, bs in parents)]:
+        for b in bookings:
+            if b["kind"] != "event":
+                continue
+            key = (b["event_start"], b["event_end"], b["name"])
+            hit = index.get(key + (None,))
+            if hit is not None:                    # already in the list, just not labelled yet
+                hit["space_name"] = label
+                index[key + (label,)] = hit
+                continue
+            if key + (label,) in index:
+                continue
+            nb = dict(b, space_name=label)
+            out.append(nb)
+            index[key + (label,)] = nb
+    if children:   # what is still unlabelled is booked for the whole space
+        for b in out:
+            if b["kind"] == "event" and not b.get("space_name"):
+                b["space_name"] = "Whole space"
+    out.sort(key=lambda b: b["start"])
+    return out
+
+
+async def get_relations(space_id: str) -> dict:
+    """{"parents": [{id, name, capacity}], "children": [...], "diagram": bool} for a room (empty if it has none)."""
+    detail = await get_space_detail(space_id)
+    if not detail:
+        return {"parents": [], "children": [], "groups": [], "diagram": False}
+    ids = list(dict.fromkeys(detail["child_ids"] + detail["parent_ids"]))
+    details = await get_space_details(ids) if ids else {}
+
+    def card(i: str, group: str | None = None) -> dict:
+        d = details.get(i) or {}
+        return {"id": i, "name": d.get("name") or d.get("short_name") or f"Space {i}", "capacity": d.get("capacity"), "group": group}
+
+    # A big space can hold smaller wholes (a lobby with a "Ballroom Lobby, all spaces" inside it). Only the
+    # smallest spaces are offered for booking, each labelled with the group it sits in.
+    sub_wholes = [i for i in detail["child_ids"] if (details.get(i) or {}).get("child_ids")]
+    group_of = {leaf: card(w)["name"] for w in sub_wholes for leaf in details[w]["child_ids"]}
+    leaves = [i for i in detail["child_ids"] if i not in sub_wholes]
+    return {"parents": [card(i) for i in detail["parent_ids"]], "children": [card(i, group_of.get(i)) for i in leaves],
+            "groups": [card(i) for i in sub_wholes],   # the smaller wholes inside (a bridge, a ballroom lobby): not bookable here, but their bookings matter
+            "diagram": bool(detail.get("layout_diagram_id"))}
+
+
+async def get_bookings_with_related(space_id: str, start: dt.date, end: dt.date | None = None) -> list[dict]:
+    """A room's bookings plus its parts' and its whole's, so a booking of any of them shows up and blocks the others."""
+    try:
+        rel = await get_relations(space_id)
+    except Live25Error:   # can't tell what it is related to: still answer for the room itself
+        return await get_bookings(space_id, start, end)
+    kids = rel["children"] + rel.get("groups", [])
+    ids = [c["id"] for c in kids] + [p["id"] for p in rel["parents"]]
+    own, *others = await asyncio.gather(get_bookings(space_id, start, end), *(get_bookings(i, start, end) for i in ids),
+                                         return_exceptions=True)
+    if isinstance(own, Exception):
+        raise own
+    got = {i: b for i, b in zip(ids, others) if not isinstance(b, Exception)}   # a part that fails to load is left out
+    return merge_related(own,
+                         [(c["name"], got[c["id"]]) for c in kids if c["id"] in got],
+                         [(p["name"], got[p["id"]]) for p in rel["parents"] if p["id"] in got])
 
 
 # ---------------------------------------------------------------- images
