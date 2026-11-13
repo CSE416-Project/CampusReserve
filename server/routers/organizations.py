@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from authentication import get_current_user
 from database import get_db
 from models.organization_and_venue import Organization, OrganizationMember
-from models.user import User
+from models.user import User, UserRole
 from routers.admin import MembershipOut, membership_out, notify_admins_of_join
 from services.pagination import Page, paged
 from services.permissions import as_uuid, has_scope, verified_org_ids
@@ -80,6 +80,10 @@ def request_to_join(
 ):
     """Ask to be verified as an E-board member. An admin verifies you before
     you can book rooms for the organization."""
+    if user.role == UserRole.GENERAL:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="General accounts can't join clubs. Create an account with your "
+                                   "SBU email to book rooms for a club.")
     org = db.get(Organization, as_uuid(organization_id, "organization"))
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found.")

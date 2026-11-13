@@ -57,8 +57,9 @@ const qs = params => {
 };
 
 // ---- auth -------------------------------------------------------------
-export async function login(email, password) {
-  const t = await call("/auth/token", { method: "POST", form: { username: email.trim(), password } });
+// `who` is an email, or a general account's username.
+export async function login(who, password) {
+  const t = await call("/auth/token", { method: "POST", form: { username: who.trim(), password } });
   setToken(t.access_token);
   return call("/auth/me");
 }
@@ -67,6 +68,11 @@ export const changePassword = (current, next) =>
   call("/auth/change-password", { method: "POST", json: { current_password: current, new_password: next } });
 export const register = (email, name, password) =>
   call("/auth/register", { method: "POST", json: { email: email.trim(), name: name.trim(), password } });
+// General account: username + password, no email. It can log in right away.
+// Usernames: 3-30 letters, numbers, dots, dashes or underscores (the server checks the same).
+export const USERNAME_RE = /^[A-Za-z0-9._-]{3,30}$/;
+export const registerGeneral = (username, password) =>
+  call("/auth/register-general", { method: "POST", json: { username: username.trim(), password } });
 // Forgot password, and confirming a new account's email. These work without being logged in.
 export const forgotPassword = email => call("/auth/forgot-password", { method: "POST", json: { email: email.trim() } });
 export const resetPassword = (token, new_password) => call("/auth/reset-password", { method: "POST", json: { token, new_password } });
@@ -123,7 +129,7 @@ export const leaveWaitlist = id => call(`/requests/${id}/waitlist`, { method: "D
 
 // ---- adapters: server shapes -> the shapes the UI already uses ---------
 export const SLOTS = ["9:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00"];
-export const ROLE_FROM_SERVER = { club_leader: "leader", admin: "admin", venue_host: "venue" };
+export const ROLE_FROM_SERVER = { club_leader: "leader", admin: "admin", venue_host: "venue", general: "general" };
 
 export function adaptRoom(r) {
   return {
