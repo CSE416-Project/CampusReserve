@@ -71,8 +71,15 @@ export const register = (email, name, password) =>
 // General account: username + password, no email. It can log in right away.
 // Usernames: 3-30 letters, numbers, dots, dashes or underscores (the server checks the same).
 export const USERNAME_RE = /^[A-Za-z0-9._-]{3,30}$/;
-export const registerGeneral = (username, password) =>
-  call("/auth/register-general", { method: "POST", json: { username: username.trim(), password } });
+export const registerGeneral = (username, password, email = "") =>
+  call("/auth/register-general", { method: "POST",
+    json: { username: username.trim(), password, ...(email.trim() ? { email: email.trim() } : {}) } });
+// A general account's optional email (for password resets): { email, pending_email }.
+// A new address only counts once its owner opens the link we email to it.
+export const getAccountEmail = () => call("/auth/email");
+export const setAccountEmail = email => call("/auth/email", { method: "PUT", json: { email: email.trim() } });
+export const removeAccountEmail = () => call("/auth/email", { method: "DELETE" });
+export const confirmAccountEmail = token => call("/auth/confirm-email", { method: "POST", json: { token } });
 // Forgot password, and confirming a new account's email. These work without being logged in.
 export const forgotPassword = email => call("/auth/forgot-password", { method: "POST", json: { email: email.trim() } });
 export const resetPassword = (token, new_password) => call("/auth/reset-password", { method: "POST", json: { token, new_password } });

@@ -20,6 +20,7 @@ import CreateAccount from './pages/CreateAccount.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import VerifyEmail from './pages/VerifyEmail.jsx';
+import ConfirmEmail from './pages/ConfirmEmail.jsx';
 import Verifications from './pages/Verifications.jsx';
 import { setKnownClubs } from './components/OrgLink.jsx';
 import * as api from './api.js';
@@ -303,7 +304,7 @@ export default function App() {
   const seg = path.split("/").filter(Boolean).map(dec);
   const authView = seg[0]==="login" ? "login" : seg[0]==="signup" ? "signup" : seg[0]==="forgot-password" ? "forgot" : null;
   // Pages opened from an emailed link. They work whether or not the person is logged in.
-  const linkView = seg[0]==="reset-password" ? "reset" : seg[0]==="verify-email" ? "verify" : null;
+  const linkView = seg[0]==="reset-password" ? "reset" : seg[0]==="verify-email" ? "verify" : seg[0]==="confirm-email" ? "confirm" : null;
   const linkToken = new URLSearchParams(window.location.search).get("token") || "";
   const page = seg[0] || "";
   const viewingClub = seg[0]==="clubs" && seg[1] ? seg[1] : null;
@@ -365,7 +366,10 @@ export default function App() {
     setRole(r); setActiveThread(null); setSignedIn(true);
     const want = restored ? window.location.pathname : afterLogin.current;
     afterLogin.current = null;
-    if (!want || !allowed(r, want)) navigate("/"+HOME[r], { replace:true });
+    // Opening an emailed link (reset / verify / confirm) while logged in: stay on that page.
+    const onLinkPage = restored && /^\/(reset-password|verify-email|confirm-email)(\/|$)/.test(window.location.pathname);
+    if (onLinkPage) { /* the link page shows; its button moves on */ }
+    else if (!want || !allowed(r, want)) navigate("/"+HOME[r], { replace:true });
     else if (!restored) navigate(want, { replace:true });
     if (api.LIVE && user) loadLive(r, user);
   };
@@ -401,6 +405,10 @@ export default function App() {
   const toLogin = () => { if (signedIn) { api.setToken(null); setSignedIn(false); } navigate("/login"); };
   if (linkView==="reset") return <ResetPassword token={linkToken} onDone={toLogin} onRequestNew={()=>{ if (signedIn) { api.setToken(null); setSignedIn(false); } navigate("/forgot-password"); }} />;
   if (linkView==="verify") return <VerifyEmail token={linkToken} onDone={toLogin} />;
+  // A general account adding an email: works logged in or out (the link may open on another device).
+  if (linkView==="confirm") return <ConfirmEmail token={linkToken} signedIn={signedIn}
+    onConfirmed={email => { if (signedIn) setProfiles(p => ({ ...p, [role]: { ...p[role], email } })); }}
+    onDone={() => navigate(signedIn ? "/profile" : "/login")} />;
   if (!signedIn && authView==="forgot") return <ForgotPassword onBack={()=>navigate("/login")} />;
   if (!signedIn && authView==="signup") return <CreateAccount onCreate={signIn} onLogin={()=>navigate("/login")} />;
   if (!signedIn) return <Login onLogin={signIn} onSignup={()=>navigate("/signup")} onForgot={()=>navigate("/forgot-password")} />;
@@ -425,7 +433,7 @@ export default function App() {
       ) : viewingRoomId!=null ? (
         viewingRoom
           ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={role==="general" ? undefined : setOpenRoom}
-          role={role} orgs={leaderOrgs} orgIds={orgIds} />
+              role={role} orgs={leaderOrgs} orgIds={orgIds} />
           : <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"24px", fontWeight:600 }}>
               {roomsLoading ? "Loading room…" : <>Room not found. <button onClick={()=>navigate("/find")} style={{ color:"var(--link)", fontWeight:700 }}>Back to search</button></>}
             </main>
@@ -446,7 +454,7 @@ export default function App() {
           {page==="profile" && <Profile key={role} role={role} profile={profiles[role]} onOpenClub={openClub}
             onSave={patch=>setProfiles(p=>({ ...p, [role]:{ ...p[role], ...patch } }))}
             memberships={memberships} membershipsLoaded={memLoaded} onSearchOrgs={searchOrgOptions} onJoin={joinOrg}
-            onChangePassword={api.LIVE ? api.changePassword : undefined} onForgotPassword={api.LIVE && role!=="general" ? api.forgotPassword : undefined} />}
+            onChangePassword={api.LIVE ? api.changePassword : undefined} onForgotPassword={api.LIVE ? api.forgotPassword : undefined} />}
           {page==="messages" && <Messages threads={threads} onSend={sendMessage} onStartChat={startChat}
             activeId={activeThread} setActiveId={setActiveThread} selfId={selfId} onSearchPeople={searchPeople} unreadMap={unreadMap} />}
           {page==="map" && <CampusMapPage rooms={rooms} loading={roomsLoading}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Avatar from '../components/Avatar.jsx';
 import PasswordInput from '../components/PasswordInput.jsx';
+import AccountEmail from '../components/AccountEmail.jsx';
 
 const field = { width:"100%", padding:"11px 13px", fontSize:15, border:"2px solid var(--ink)", borderRadius:10,
   background:"var(--paper)", outline:"none", marginTop:6 };
@@ -143,6 +144,9 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
         </div>
       )}
 
+      {role==="general" && <AccountEmail email={profile.email} onEmailChange={email=>onSave({ email })}
+        styles={{ card, label, field, primary }} />}
+
       <div className="card-pad" style={card}>
         <div style={{ fontSize:18, fontWeight:700 }}>Change password</div>
         <label style={label}>Current password
@@ -158,9 +162,9 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
           <button onClick={updatePassword} disabled={pwBusy} style={primary}>{pwBusy ? "Updating…" : "Update password"}</button>
           {pwMsg && <span role="status" style={{ fontSize:14.5, fontWeight:600, color: pwMsg.ok ? "var(--green)" : "var(--red)" }}>{pwMsg.text}</span>}
         </div>
-        {role==="general" ? (
+        {role==="general" && !profile.email ? (
           <div style={{ marginTop:18, paddingTop:14, borderTop:"1px solid var(--line)", fontSize:14.5, color:"var(--ink-soft)" }}>
-            General accounts don't have an email, so we can't send a reset link. Keep your password somewhere safe.
+            Without a confirmed email we can't send you a reset link. Add one above, or keep your password somewhere safe.
           </div>
         ) : (
         <div style={{ marginTop:18, paddingTop:14, borderTop:"1px solid var(--line)", fontSize:14.5, color:"var(--ink-soft)" }}>

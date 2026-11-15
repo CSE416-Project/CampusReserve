@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models.auth_token import KIND_RESET, KIND_VERIFY
+from models.auth_token import KIND_ADD_EMAIL, KIND_RESET, KIND_VERIFY
 from models.user import User, UserRole
 from services import auth_tokens, mailer
 from authentication import (
@@ -37,6 +37,13 @@ class GeneralRegisterRequest(BaseModel):
     # never be mistaken for an email at login.
     username: str = Field(min_length=3, max_length=30, pattern=r"^[A-Za-z0-9._-]+$")
     password: str = Field(min_length=8, max_length=128)
+    # Optional, only for password resets. We email a link to confirm it first.
+    email: EmailStr | None = None
+
+
+class AccountEmailResponse(BaseModel):
+    email: str | None             # confirmed: password-reset emails go here
+    pending_email: str | None     # added, waiting for the person to open the link
 
 
 class ChangePasswordRequest(BaseModel):
@@ -115,6 +122,9 @@ def register_general(payload: GeneralRegisterRequest, db: Session = Depends(get_
     username = payload.username.strip()
     if db.query(User.id).filter(func.lower(User.username) == username.lower()).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=USERNAME_TAKEN)
+    email = str(payload.email).strip() if payload.email else None
+    if email and _find_user(db, email):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN)
     user = User(username=username, email=None, name=username,
                 password_hash=hash_password(payload.password), role=UserRole.GENERAL)
     db.add(user)
@@ -124,7 +134,95 @@ def register_general(payload: GeneralRegisterRequest, db: Session = Depends(get_
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=USERNAME_TAKEN)
     db.refresh(user)
+    if email:  # the account works right away; the email only counts once it's confirmed
+        _send_add_email_link(db, user, email)
     return _user_response(user)
+
+
+# --- Optional email on a general account (for password resets) ---
+
+EMAIL_TAKEN = "That email is already used by another account."
+
+
+def _send_add_email_link(db: Session, user: User, email: str) -> None:
+    raw = auth_tokens.create_token(db, user, KIND_ADD_EMAIL, email=email)
+    db.commit()
+    mailer.send_email(
+        email, "Confirm your email for CampusReserve",
+        f"Hi {user.name},\n\nOpen this link to add this email to your CampusReserve account "
+        f"({user.username}). We'll only use it if you need to reset your password:\n\n"
+        f"{mailer.app_url()}/confirm-email?token={raw}\n\n"
+        "The link works for 24 hours. If you didn't ask for this, you can ignore this email.\n")
+
+
+def _general_only(user: User) -> None:
+    if user.role != UserRole.GENERAL:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Only general accounts can change their email here.")
+
+
+def _email_state(db: Session, user: User) -> AccountEmailResponse:
+    return AccountEmailResponse(email=user.email, pending_email=auth_tokens.pending_email(db, user))
+
+
+@router.get("/email", response_model=AccountEmailResponse)
+def get_account_email(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """This account's email, and any address added but not confirmed yet."""
+    return _email_state(db, user)
+
+
+@router.put("/email", response_model=AccountEmailResponse)
+def set_account_email(payload: EmailRequest, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Add or change a general account's email. Nothing changes until the person opens
+    the link we send to the new address; until then it shows as pending_email."""
+    _general_only(user)
+    email = str(payload.email).strip()
+    if user.email and user.email.lower() == email.lower():
+        auth_tokens.cancel_pending_email(db, user)
+        db.commit()
+        return _email_state(db, user)
+    owner = _find_user(db, email)
+    if owner and owner.id != user.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN)
+    if auth_tokens.recently_sent(db, user, KIND_ADD_EMAIL):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="We just sent a link. Wait a minute before trying again.")
+    _send_add_email_link(db, user, email)
+    return _email_state(db, user)
+
+
+@router.delete("/email", response_model=AccountEmailResponse)
+def remove_account_email(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Remove a general account's email (and cancel any waiting link). Its username
+    still works for logging in; it just can't get password-reset emails."""
+    _general_only(user)
+    auth_tokens.cancel_pending_email(db, user)
+    user.email = None
+    db.commit()
+    return _email_state(db, user)
+
+
+@router.post("/confirm-email", response_model=AccountEmailResponse)
+def confirm_account_email(payload: TokenRequest, db: Session = Depends(get_db)):
+    """The link in the "confirm your email" message lands here (through the website).
+    Works without being logged in, so it can be opened on any device."""
+    row = auth_tokens.find_valid(db, payload.token, KIND_ADD_EMAIL)
+    if not row or not row.email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This link is invalid or has expired. Add your email again from your profile.")
+    user = db.query(User).filter(User.id == row.user_id).first()
+    owner = _find_user(db, row.email)
+    if owner and owner.id != user.id:   # someone else took it after the link was sent
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN)
+    user.email = row.email
+    row.used_at = datetime.utcnow()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN)
+    return _email_state(db, user)
 
 
 def _email_verify_link(user: User, raw: str) -> None:
