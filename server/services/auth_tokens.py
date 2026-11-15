@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from models.auth_token import KIND_VERIFY, AuthToken
+from models.auth_token import KIND_ADD_EMAIL, KIND_VERIFY, AuthToken
 from models.user import User
 
 VERIFY_TTL = timedelta(hours=24)
@@ -27,14 +27,15 @@ def recently_sent(db: Session, user: User, kind: str) -> bool:
     return bool(last and datetime.utcnow() - last.created_at < RESEND_COOLDOWN)
 
 
-def create_token(db: Session, user: User, kind: str) -> str:
-    """Make a new link for this person (replacing any unused one) and return the secret part."""
+def create_token(db: Session, user: User, kind: str, email: str | None = None) -> str:
+    """Make a new link for this person (replacing any unused one) and return the secret part.
+    `email` is only for KIND_ADD_EMAIL: the address the link confirms."""
     db.query(AuthToken).filter(AuthToken.user_id == user.id, AuthToken.kind == kind,
                                AuthToken.used_at.is_(None)).delete()
     raw = secrets.token_urlsafe(32)
-    ttl = VERIFY_TTL if kind == KIND_VERIFY else RESET_TTL
+    ttl = VERIFY_TTL if kind in (KIND_VERIFY, KIND_ADD_EMAIL) else RESET_TTL
     db.add(AuthToken(user_id=user.id, kind=kind, token_hash=_hash(raw),
-                     expires_at=datetime.utcnow() + ttl))
+                     expires_at=datetime.utcnow() + ttl, email=email))
     db.flush()
     return raw
 
@@ -56,6 +57,19 @@ def is_pending_verification(db: Session, user: User) -> bool:
     feature, seeded admins and so on) count as fine, so nobody gets locked out."""
     return db.query(AuthToken.id).filter(AuthToken.user_id == user.id, AuthToken.kind == KIND_VERIFY,
                                          AuthToken.used_at.is_(None)).first() is not None
+
+
+def pending_email(db: Session, user: User) -> str | None:
+    """The address this person added but hasn't confirmed yet (the newest working link), if any."""
+    row = (db.query(AuthToken).filter(AuthToken.user_id == user.id, AuthToken.kind == KIND_ADD_EMAIL,
+                                      AuthToken.used_at.is_(None), AuthToken.expires_at > datetime.utcnow())
+           .order_by(AuthToken.created_at.desc()).first())
+    return row.email if row else None
+
+
+def cancel_pending_email(db: Session, user: User) -> None:
+    db.query(AuthToken).filter(AuthToken.user_id == user.id, AuthToken.kind == KIND_ADD_EMAIL,
+                               AuthToken.used_at.is_(None)).delete()
 
 
 def mark_verified(db: Session, user: User) -> None:

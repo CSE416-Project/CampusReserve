@@ -32,6 +32,7 @@ export default function CreateAccount({ onCreate, onLogin }) {
     if (general) {
       const username = form.username.trim();
       if (!USERNAME_RE.test(username)) return setError("Pick a username of 3 to 30 letters, numbers, dots, dashes or underscores.");
+      if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) return setError("Enter a valid email address, or leave it empty.");
     } else {
       if (!form.name.trim()) return setError("Enter your full name.");
       if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return setError("Enter a valid email address.");
@@ -44,7 +45,7 @@ export default function CreateAccount({ onCreate, onLogin }) {
     try {
       if (general) {
         // No email to confirm, so log straight in.
-        await registerGeneral(form.username, form.password);
+        await registerGeneral(form.username, form.password, form.email);
         const u = await login(form.username, form.password);
         onCreate(ROLE_FROM_SERVER[u.role] || "general", u);
         return;
@@ -80,14 +81,19 @@ export default function CreateAccount({ onCreate, onLogin }) {
       </fieldset>
 
       <form noValidate onSubmit={submit}>
-        {general ? (
+        {general ? (<>
           <label style={authLabel}>Username
             <input value={form.username} onChange={set("username")} autoComplete="username" autoCapitalize="none" spellCheck={false}
               placeholder="e.g. seawolf_fan" maxLength={30} style={authInput} />
             <span style={{ display:"block", marginTop:5, fontSize:13, fontWeight:500, color:"var(--ink-faint)" }}>
               3–30 letters, numbers, dots, dashes or underscores. You'll log in with this.</span>
           </label>
-        ) : (<>
+          <label style={authLabel}>Email <span style={{ fontWeight:500, color:"var(--ink-faint)" }}>(optional)</span>
+            <input type="email" value={form.email} onChange={set("email")} autoComplete="email" placeholder="you@example.com" style={authInput} />
+            <span style={{ display:"block", marginTop:5, fontSize:13, fontWeight:500, color:"var(--ink-faint)" }}>
+              Only used to reset your password. We'll email you a link to confirm it.</span>
+          </label>
+        </>) : (<>
           <label style={authLabel}>Full name
             <input value={form.name} onChange={set("name")} placeholder="Jane Doe" style={authInput} />
           </label>
@@ -101,8 +107,8 @@ export default function CreateAccount({ onCreate, onLogin }) {
         <label style={authLabel}>Confirm password
           <PasswordInput value={form.confirm} onChange={set("confirm")} autoComplete="new-password" placeholder="Re-enter your password" style={authInput} />
         </label>
-        {general && <div style={{ marginTop:12, fontSize:13.5, color:"var(--ink-soft)", lineHeight:1.45 }}>
-          There's no email on a general account, so we can't send a reset link if you forget your password.</div>}
+        {general && !form.email.trim() && <div style={{ marginTop:12, fontSize:13.5, color:"var(--ink-soft)", lineHeight:1.45 }}>
+          Without an email we can't send a reset link if you forget your password. You can add one later in your profile.</div>}
         {error && <div role="alert" style={{ color:"var(--red)", fontSize:14.5, fontWeight:600, marginTop:14 }}>{error}</div>}
         <button type="submit" disabled={busy} style={{ width:"100%", marginTop:22, padding:"14px", borderRadius:10, fontSize:16, fontWeight:700,
           color:"var(--ink)", background:"var(--blue)" }}>{busy ? "Creating…" : "Create account"}</button>
