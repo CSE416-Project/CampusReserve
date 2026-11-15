@@ -174,13 +174,13 @@ export default function App() {
       if (!orgId) throw new Error("You aren't verified for a club yet. Add your club in your profile and wait for an admin to verify you.");
       const failed = [];
       for (const p of picks) {
-        try { await api.createRequest(api.requestBody(room, orgId, p, eventName || `${org} event`)); }
+        try { await api.createRequest(api.requestBody(p.room || room, orgId, p, eventName || `${org} event`)); }
         catch (e) { failed.push({ pick:p, msg:e.message }); }
       }
       await loadRequests(role, rooms);
       return failed;
     }
-    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:p.event || eventName,
+    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room:p.room || room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:p.event || eventName,
       startAt:new Date(`${p.key}T${p.start}`), endAt:new Date(`${p.key}T${p.end}`) }))]);
     return [];
   };
@@ -229,7 +229,7 @@ export default function App() {
     if (!orgId) throw new Error("You aren't verified for a club yet.");
     const failed = [];
     for (const p of picks) {
-      try { await api.createRequest({ ...api.requestBody(room, orgId, p, eventName), join_waitlist_if_taken:true }); }
+      try { await api.createRequest({ ...api.requestBody(p.room || room, orgId, p, eventName), join_waitlist_if_taken:true }); }
       catch (e) { failed.push({ pick:p, msg:e.message }); }
     }
     await loadWaitlist(room);

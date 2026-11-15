@@ -91,8 +91,11 @@ export const adaptClub = o => ({ id:o.id, name:o.name, category:null, bio:o.desc
 
 // ---- rooms ------------------------------------------------------------
 export const rooms = () => call("/rooms");
-export const roomSchedule = (id, startKey, endKey) =>
-  call(`/rooms/${encodeURIComponent(id)}/schedule?start=${startKey}&end=${endKey}`);
+// related: also the bookings of the room's parts and its whole (a lobby and its tables), each labelled with space_name.
+export const roomSchedule = (id, startKey, endKey, related = false) =>
+  call(`/rooms/${encodeURIComponent(id)}/schedule?start=${startKey}&end=${endKey}${related ? "&with_related=true" : ""}`);
+// The parts a room divides into (a lobby's tables) and the whole it belongs to: { parts, parents, has_diagram }.
+export const roomParts = id => call(`/rooms/${encodeURIComponent(id)}/parts`);
 // Official 25Live bookings for a list of rooms (the admin calendar).
 export const live25Schedule = (startKey, endKey, ids) =>
   call(`/rooms/live25-schedule?start=${startKey}&end=${endKey}&room_ids=${ids.join(",")}`);
