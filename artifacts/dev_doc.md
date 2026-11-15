@@ -68,34 +68,60 @@ Room statuses evaluate dynamically across building closures, approved bookings, 
 
 ```text
 campusreserve/
-├── artifacts/
+├── artifacts/               # Documentation and visual references
 │   ├── mock-UI/
 |   ├── approval_sequence_flow.png
 |   ├── architecture-sketch.png
 |   ├── deployed_sites.md
-|   ├── approval_sequence_flow.png
-|   ├── approval_sequence_flow.png
-|   ├── approval_sequence_flow.png
-│   └──  
+|   ├── design-document.md
+|   ├── dev_doc.md
+|   ├── frontend_screen_map.png
+|   ├── functional-nonfunctional-requirements.md
+|   ├── presentations.md
+|   ├── proposal.md
+|   ├── request_lifecycle_states.png
+|   ├── stack-justification.md
+|   ├── team-roles.md
+|   ├── user_doc.md
+│   └── user-quotes.md
 ├── frontend/
+│   ├── public/             # Public resources
 │   ├── src/
-│   │   ├── components/     # CampusMap, LoungeGroupView, AccessibilityBar, StatusBadge
-│   │   ├── pages/          # Role-specific dashboards (Student, ClubExec, VenueHost, Admin)
-│   │   ├── context/        # AuthContext, ThemeContrastContext, SimplifiedViewContext
-│   │   └── services/       # Typed API client
-│   └── package.json
-├── backend/
-│   ├── app/
-│   │   ├── api/            # FastAPI routers (auth, rooms, bookings, waitlist, messages, forum, admin)
-│   │   ├── core/           # Security, JWT/session hashing, RBAC dependencies, config
-│   │   ├── models/         # SQLAlchemy ORM models (User, Org, Building, Room, Booking, Waitlist)
-│   │   ├── schemas/        # Pydantic request/response schemas
-│   │   ├── services/       # Status engine, Brevo email/notification service, 25Live sync adapter
-│   │   └── main.py         # FastAPI entry point
-│   ├── alembic/            # Database migrations
-│   └── requirements.txt
-└── docs/
-    └── user-guide.md       # End-user documentation
+│   │   ├── a11y/
+│   │   ├── components/
+│   │   ├── data/
+│   │   ├── pages/          # Role-specific dashboards
+│   │   ├── api.js
+│   │   ├── App.jsx
+│   │   ├── index.css
+│   │   ├── main.jsx
+│   │   ├── responsive.css
+│   │   ├── router.js
+│   │   └── useMedia.js
+│   ├── .oxlintrc.json
+│   ├── index.html
+│   ├── mockup.html
+│   ├── package-lock.json
+│   ├── package.json
+│   └── vite.config.js
+├── server/
+│   ├── access_control/
+│   ├── models/
+│   ├── router/
+│   ├── services/
+│   ├── tests/
+│   ├── tflive_integrations/
+│   ├── authentication.py
+│   ├── conftest.py
+│   ├── create_tables.py
+│   ├── database.py
+│   ├── dev_rooms.py
+│   ├── dev_setup.py
+│   ├── main.py
+│   └── seed_demo.py
+├── CHANGELOG.md
+├── README.md
+└── WORKFLOW.md
 ```
 
 ---
@@ -110,7 +136,7 @@ campusreserve/
 
 ### 1. Backend Setup
 ```bash
-cd backend
+cd server
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -145,8 +171,8 @@ npm run dev
 
 | Phase | Target | Engineering Deliverables |
 | :--- | :--- | :--- |
-| **Phase 1 (MVP)** | M3 | 4-role RBAC (including General Student username/password auth); search/filter & organized lounge view; real-time status engine; booking requests (with setup/cleanup buffers); admin approval with required reason; club request dashboard. |
-| **Phase 2** | M4 | Pre-approved waitlist with automatic promotion on cancellation; Brevo email verification flow; in-app notifications; inter-club/host/admin messaging. |
+| **Phase 1 (MVP)** | M3 | 4-role RBAC (including General Student username/password auth); search/filter; real-time status engine; booking requests (with setup/cleanup buffers); admin approval with required reason; club request dashboard. |
+| **Phase 2** | M4 | Pre-approved waitlist with automatic promotion on cancellation; Brevo email verification flow; inter-club/host/admin messaging. |
 | **Phase 3** | M5 | Collaboration forum; Student Affairs analytics dashboard; WCAG AA contrast & simplification controls; 25Live sync adapter (test environment) & 25Live CSV export. |
 | **Enhancements** | Future | Expanded automated email triggers via Brevo; direct production 25Live API integration. |
 
@@ -154,7 +180,7 @@ npm run dev
 
 ## 6. Team Workstreams
 
-* **Kelly Fung** — *Frontend & Accessibility*: React UI across all four user roles, organized lounge view, calendar/map views, WCAG AA contrast sets, and simplification layer.
+* **Kelly Fung** — *Frontend & Accessibility*: React UI across all four user roles, calendar/map views, WCAG AA contrast sets, and simplification layer.
 * **Sarah Julian** — *Backend & Workflow*: Username/password & E-board authentication, RBAC, email verification flow, booking/approval state machine, real-time status engine, and waitlist logic.
 * **Susan Qu** — *Data & Integration*: PostgreSQL/Supabase schema, concurrency constraints, swappable 25Live sync adapter, mock 25Live target, and 25Live-compliant CSV export.
-* **Sarah Zhang** — *Notifications, Forum & Analytics*: Brevo integration, in-app notification service, direct messaging, collaboration forum, and Student Affairs usage analytics.
+* **Sarah Zhang** — *Notifications, Forum & Analytics*: Brevo integration, direct messaging, collaboration forum, and Student Affairs usage analytics.

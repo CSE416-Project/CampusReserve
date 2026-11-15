@@ -17,13 +17,14 @@ CampusReserve is designed to improve the room-booking experience specifically fo
 
 ## 2. Users and Audience
 
-CampusReserve serves three types of users who have different specific needs and permissions. Separating these roles is important for maintaining security and making sure access is given to the appropriate people.
+CampusReserve will serve four types of users who will have different specific needs and permissions. Separating these roles will be important for maintaining security and making sure access is given to the appropriate people.
 
 | Role | Who they are | What they do in CampusReserve |
 |------|-------------|--------------------------|
 | **Club Executive Members** | Verified E-board members of a registered organization | Search and filter spaces, submit and track booking requests, join waitlists, communicate with other organizations, use the collaboration forum |
 | **Administrators** | Student Affairs / USG staff who manage spaces | Review, approve, or deny requests with a stated reason; verify E-board members; manage room availability and closures; keep approved bookings in sync with 25Live; view analytics on demand and usage |
 | **Venue Hosts** | Employees responsible for the buildings and rooms where events are held | Manage the rooms they oversee (details, availability, closures); communicate with organizations booking their spaces |
+| **General Students** | Any SBU student browsing campus activity (logs in via username and password, with an optional verified email) | View and search booked events, check empty/available spaces, and browse the campus map. They not submit booking requests. |
 
 **Target Audience.** SBU itself is our primary audience. The project is guided by Student Affairs and Undergraduate Student Government (USG) leaders, whose feedback shaped the requirements below.
 
@@ -32,8 +33,8 @@ CampusReserve serves three types of users who have different specific needs and 
 CampusReserve is not a page that a language model produces in a weekend. Its difficulty lives in several genuinely hard, interacting problems:
 
 - **A real-time status engine.** The core value of the product is that a room's status is always accurate — whether it is available, already requested by another group, or genuinely unbookable. Keeping that status correct as requests, approvals, cancellations, and closures happen concurrently, while combining our data with 25Live's, is a state-consistency problem.
-- **A multi-role approval workflow.** A request moves through states (submitted → pending → approved/denied → possibly cancelled, with a waitlist for contested slots) across different user roles, each seeing and doing different things. Modeling that workflow and its permissions correctly is substantial.
-- **Role-based access control and identity verification.** We must verify that a user is genuinely an E-board member of the organization they claim, and grant each role only the access it needs, only for as long as it needs it.
+- **A multi-role approval workflow.** A request moves through states (submitted → pending → approved/denied → possibly cancelled) across multiple user roles (Club Executive Members, Administrators, Venue Hosts, and General Students), each seeing and doing different things. Modeling that workflow and its permissions correctly is substantial.
+- **Role-based access control and identity verification.**  We must verify that a user is genuinely an E-board member of the organization they claim, and grant each role only the access it needs, only for as long as it needs it. We also support a lightweight username/password login for General Students alongside an email verification flow so that users opting into email alerts have a confirmed address.
 - **A pre-approved waitlist.** Spaces need a waitlist where the next group can be promoted automatically when an event is cancelled, without a second round of approval.
 - **Synchronization with an external system of record.** Confirmed bookings must reconcile with 25Live so we neither double-book nor collide with Registrar academic reservations.
 
@@ -52,7 +53,7 @@ None of these are scaffolding an agent generates in one pass; the state-consiste
 
 ### 5.1 Functional Requirements
 
-**FR-1 — Search & filter.** Users can search and filter spaces by building, capacity, type, and features relevant to student events (such as food allowed, projector, stage, or wheelchair access), and find every room that is free for a given time and fits their expected attendance.
+**FR-1 — Search & filter.** Users can search and filter spaces by building, capacity, type, and features relevant to student events.
 *Why:* leaders told us 25Live's search is "hard to search and look through" and helpful filtering options are hidden — so we prioritize the filters useful to club events rather than the full academic-scheduling set.
 
 **FR-2 — Real-time room status.** Each space displays a real-time status of available, requested (pending another group's approval), or unbookable, with the reason shown for unbookable spaces. A room's schedule shows 25Live's bookings alongside our requests, waitlist, and closures.
@@ -70,7 +71,7 @@ None of these are scaffolding an agent generates in one pass; the state-consiste
 **FR-6 — Waitlist.** A leader can join a waitlist for a fully-booked popular space; the next waitlisted (pre-approved) request is promoted automatically when a booking is cancelled. Leaders can see their place in line, while other organizations' event details stay private.
 *Why:* popular spaces sit empty when an event is cancelled because there is no way to claim the freed slot. A pre-approved waitlist means availability is not wasted and the next group can proceed without waiting on another approval cycle.
 
-**FR-7 — Notifications.** Users receive notifications on request approval, denial, waitlist promotion, membership verification, and new messages, both in-app and by email.
+**FR-7 — Notifications.** Users receive notifications on request approval, denial, waitlist promotion, and new messages (email via Brevo services). To support reliable email delivery, users can link and verify an email address through an email verification flow.
 *Why:* 25Live has no reliable notification system, which leaders said causes "lack of information and communication," creating delays and unnecessary stress. Timely notifications close that gap.
 
 **FR-8 — Messaging.** Users can message other organizations, venues, and administrators to coordinate shared use of spaces.
@@ -88,11 +89,23 @@ None of these are scaffolding an agent generates in one pass; the state-consiste
 **FR-12 — Analytics.** Administrators can view analytics on room demand, peak booking times, and usage patterns.
 *Why:* requested directly by Student Affairs (Ahmed Belazi, Executive Director for Strategic Analytics and Technologies). Administrators need to see how spaces are used to allocate them well and to confirm that the technology spend is justified. Since SBU is our client, this helps our stakeholders make decisions and feel confident in the platform.
 
+**FR-13 — Export.** Administrators will have the option to export the current bookings in the form of a CSV file. The format of the CSV file will be in line with the 25Live CSV import guidelines. 
+*Why:* Acquirement of write-access to 25Live is strict and requires proper coordination with PeopleSoft and SBU DoIT. To protect our project roadmap, we built our system so that we can export booked rooms as CSV files. This CSV will be exported by administrators to import into 25Live.
+
+**FR-14 — Campus map.** There will be a map visual of the Stony Brook University campus. There will also be markers that show where each bookable space is located. 
+*Why:* Users can reference this map in order to see where rooms are located. This can help users make better booking choices for themselves and also physically find these rooms. 
+
+**FR-15 — Mobile option.** The site can  be accessed through a mobile device. 
+*Why:* Users can book rooms, respond to messages, view rooms, etc at their own convenience.
+
+**FR-16 — General student access & authentication.** General students can create an account and log in using a username and password (with an optional verified email) to view scheduled campus events, search empty spaces, and browse the campus map in a read-only mode without booking privileges. 
+*Why:* opening read-only visibility lets general SBU students discover campus events and open study/hangout spaces while keeping room-reservation controls restricted to verified E-board leaders.
+
 ### 5.2 Non-Functional Requirements
 
 **Security and privacy.** These requirements stem directly from Student Affairs feedback, which prioritizes confidentiality.
 
-- **NFR-1 — Role-based access.** Each role can access only the data and actions its role permits; E-board membership is verified by an administrator before a leader gains booking rights for that organization.
+- **NFR-1 — Role-based access.** Each role can access only the data and actions its role permits; E-board membership is verified before a leader gains booking rights. General student accounts are strictly restricted to read-only public views, and email notifications are only dispatched to verified email addresses.
 - **NFR-2 — Least privilege.** Access is scoped to what a user needs and for only as long as they need it: leadership rights are tied to a term that ends, and venue hosts can manage only the rooms in venues they host.
 - **NFR-3 — Credential protection.** Passwords are stored only as hashes, sessions use signed tokens, and user data is protected so that confidential information is not exposed across organizations.
 
@@ -133,7 +146,7 @@ The inspiration for this application comes from a significant common frustration
 
 ## 7. Architecture Sketch
 
-CampusReserve is a three-tier web application. A React frontend serves all three roles; a Python and FastAPI backend holds the authentication, scope-based access, membership verification, booking, approval-workflow, status, and waitlist logic; and a PostgreSQL database, accessed through the SQLAlchemy ORM, stores users, organizations and their verified members, venues, rooms, closures, requests, notifications, messages, and forum content. The organization list is seeded from SBU's SB Engaged group directory.
+CampusReserve is a three-tier web application. A React frontend serves all four roles; a Python and FastAPI backend holds the authentication, scope-based access, booking, approval-workflow, status, and waitlist logic; and a PostgreSQL database, accessed through the SQLAlchemy ORM, stores users, organizations, venues, rooms, requests, messages, and forum content.
 
 PostgreSQL is chosen deliberately: CampusReserve's core guarantee is that a room is never double-booked, which is a transactional problem. Postgres's ACID transactions let the backend check for a conflicting booking and commit an approval as a single atomic operation, and a Postgres exclusion constraint rejects overlapping approved bookings at the database level, so two administrators approving overlapping requests concurrently cannot both succeed. Our data is also highly relational, which fits a relational schema naturally.
 
@@ -151,16 +164,16 @@ We scope deliberately. The Minimum Viable Product is the club-leader booking flo
 
 | Phase | Target | Scope |
 |-------|--------|-------|
-| **Phase 1 (MVP)** | By M3 | Accounts, role-based auth, and E-board verification; search and filter; accurate room availability; submit and track booking requests; admin approval with reason; club-leader request dashboard. |
-| **Phase 2** | By M4 | Waitlist with automatic promotion; in-app and email notifications; calendar subscription; messaging between organizations, venues, and admins. |
-| **Phase 3** | By M5 | Collaboration forum; analytics layer; accessibility controls (contrast sets, simplification layer); 25Live sync in manual mode with an admin sync queue. |
-| **Enhancements** | Stretch / future | 360° room view (uploaded panoramas rather than modeled 3D); automatic 25Live sync through the production API once write access is granted. Documented for a future team to continue. |
+| **Phase 1 (MVP)** | By M3 | Accounts and role-based auth; search and filter; accurate room availability; submit and track booking requests; admin approval with reason; club-leader request dashboard; general student read-only accounts (username/password login) |
+| **Phase 2** | By M4 | Waitlist with automatic promotion; notifications; messaging between organizations, venues, and admins; email verification flow |
+| **Phase 3** | By M5 | Collaboration forum; analytics layer; accessibility controls (contrast sets, simplification layer); 25Live sync against the test environment; |
+| **Enhancements** | Stretch / future | Email notifications; production 25Live integration. Documented for a future team to continue. |
 
 ## 9. Team Roles
 
 | Team Member | Workstream | Responsibility |
 |-------------|-----------|----------------|
-| **Kelly Fung** — PR Officer of a club | Frontend & accessibility | React interface across all three roles; accessibility controls; demo readiness. |
-| **Sarah Julian** — Treasurer of a club for 2 years | Backend & workflow | Auth, role-based access, booking and approval-workflow logic, status engine, waitlist. |
-| **Susan Qu** | Data & integration | PostgreSQL schema; the 25Live integration and sync layer. |
-| **Sarah Zhang** | Notifications, forum & analytics | Notification service, messaging, collaboration forum, and the analytics layer. |
+| **Kelly Fung** — PR Officer of a club | Frontend & accessibility | React interface across all four roles; accessibility controls; demo readiness, calendar view. |
+| **Sarah Julian** — Treasurer of a club for 2 years | Backend & workflow | Auth, role-based access, booking and approval-workflow logic, status engine, waitlist, username/password auth & email verification flow. |
+| **Susan Qu** | Data & integration | database schema; the 25Live sync adapter and its mock/test target, CSV export. |
+| **Sarah Zhang** | Notification service, messaging, collaboration forum, and the analytics layer. |
