@@ -166,7 +166,7 @@ def _item(**kw) -> dict:
         "source": None, "kind": None, "status": None, "name": "",
         "start": None, "end": None, "event_start": None, "event_end": None,
         "expected_headcount": None, "request_id": None, "waitlist_position": None,
-        "waitlist_count": 0, "conflicts_with_25live": False,
+        "waitlist_count": 0, "conflicts_with_25live": False, "space_name": None,
     }
     base.update(kw)
     return base
@@ -203,7 +203,7 @@ def build_schedule(
         item = _item(source="25live", kind=b["kind"], status=b["state"], name=b["name"],
                      start=b["start"], end=b["end"],
                      event_start=b["event_start"], event_end=b["event_end"],
-                     expected_headcount=b["expected_headcount"])
+                     expected_headcount=b["expected_headcount"], space_name=b.get("space_name"))
         if b["kind"] == "event":
             hits = [w for w in waitlisted if overlaps(w["start"], w["end"], b["start"], b["end"])]
             item["waitlist_count"] = len(hits)

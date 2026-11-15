@@ -3,6 +3,22 @@ import { LIVE, roomSchedule } from './api.js';
 import { slotState } from './data/mock.js';
 import { KINDS, dayKey, addDays } from './components/WeekCalendar.jsx';
 
+// Which spaces (ids) a booking covers: the one it names, the whole area it names, or all of them.
+export const columnsFor = (parts, spaceName) => {
+  const exact = parts.filter(p => p.name === spaceName);
+  if (exact.length) return exact.map(p => p.id);
+  const area = parts.filter(p => p.group && p.group === spaceName);
+  return (area.length ? area : parts).map(p => p.id);
+};
+
+export const spaceLabel = n => {
+  const area = /\(([^)]*)\)/.exec(n);   // "Student Union - 203-01 (2nd Floor Ballroom Lobby All Spaces)" -> "2nd Floor Ballroom Lobby (all)"
+  if (area) return `${area[1].replace(/\s*All Spaces$/i, "").trim()} (all)`;
+  if (n.startsWith("Whole space: ")) return `Whole ${n.slice(13).replace(/^.* - /, "")}`;
+  const name = n.replace(/^.* - /, "");
+  return /Space\s*\d+$/i.exec(name)?.[0] || name;   // "2nd Floor Ballroom Lobby Space 2" -> "Space 2": short enough to fit on a calendar block
+};
+
 // One item from GET /rooms/{id}/schedule -> a calendar block.
 // start/end is the event itself; blockedStart/blockedEnd also covers setup and cleanup (used for clashes).
 export function scheduleToEvents(items) {
@@ -17,9 +33,11 @@ export function scheduleToEvents(items) {
     return {
       id: `${it.request_id || "x"}-${i}-${it.start}`,
       start, end, blockedStart: new Date(it.start), blockedEnd: new Date(it.end),
-      title: it.name || KINDS[kind].label,
-      sub: kind === "waitlist" && it.waitlist_position ? `Waitlist #${it.waitlist_position}` : KINDS[kind].label,
+      title: (it.name || KINDS[kind].label) + (it.space_name ? ` · ${spaceLabel(it.space_name)}` : ""),
+      sub: kind === "waitlist" && it.waitlist_position ? `Waitlist #${it.waitlist_position}` : it.space_name || KINDS[kind].label,
+      details: it.space_name ? [["Space", spaceLabel(it.space_name)]] : undefined,
       kind, source: it.source || null, waitlistPosition: it.waitlist_position || null,
+      spaceName: it.space_name || null,
     };
   });
 }
@@ -52,7 +70,7 @@ export function useRoomWeek(room, weekStart) {
   const [, force] = useState(0);
   const [st, setSt] = useState({ loading: false, error: "" });
   const live = !!room && LIVE && !!room.live;
-  const key = room ? `${room.id}|${dayKey(weekStart)}` : "";
+  const key = room ? `${room.id}${room.related ? "+" : ""}|${dayKey(weekStart)}` : "";
   const retry = useRef(0);
   useEffect(() => {
     if (!live) { setSt({ loading: false, error: "" }); return; }
@@ -63,7 +81,7 @@ export function useRoomWeek(room, weekStart) {
     if (last < today) { cache.current.set(key, []); force(n => n + 1); return; }
     const first = weekStart < today ? today : weekStart;   // days that are over aren't loaded
     setSt({ loading: true, error: "" });
-    roomSchedule(room.id, dayKey(first), dayKey(last))
+    roomSchedule(room.id, dayKey(first), dayKey(last), !!room.related)
       .then(items => { cache.current.set(key, scheduleToEvents(items)); if (!off) { setSt({ loading: false, error: "" }); force(n => n + 1); } })
       .catch(e => { if (!off) setSt({ loading: false, error: e.message || "Couldn't load this room's schedule." }); });
     return () => { off = true; };

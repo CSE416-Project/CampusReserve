@@ -56,7 +56,7 @@ export default function RoomDetail({ room, onBack, onBook, role, orgs = [], orgI
     if (!live) { setComments(c => [...c, { org:"Robotics Club", text }]); setDraft(""); return; }
     setPosting(true); setCError("");
     try {
-      const orgId = isAdmin ? null : orgIds[asOrg];
+      const orgId = isAdmin ? null : orgIds[asOrg || orgs[0]];
       if (!isAdmin && !orgId) throw new Error("Pick a club to comment as.");
       const c = await api.postRoomComment(room.id, text, orgId);
       setComments(cs => [adaptComment(c), ...cs]); setDraft("");
@@ -152,7 +152,7 @@ export default function RoomDetail({ room, onBack, onBook, role, orgs = [], orgI
           {canComment ? (
             <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
               {live && !isAdmin && orgs.length > 1 && (
-                <select value={asOrg} onChange={e=>setAsOrg(e.target.value)} aria-label="Comment as"
+                <select value={asOrg || orgs[0]} onChange={e=>setAsOrg(e.target.value)} aria-label="Comment as"
                   style={{ padding:"12px 10px", fontSize:16, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)" }}>
                   {orgs.map(o => <option key={o}>{o}</option>)}
                 </select>
