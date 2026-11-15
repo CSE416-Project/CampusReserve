@@ -109,6 +109,8 @@ class RoomDetailResponse(BaseModel):
     layout_capacity: int | None = None
     layout_photo_id: int | None = None
     layout_diagram_id: int | None = None
+    parent_ids: list[str] = []         # the whole space this one is a part of (25Live "subdivision of")
+    child_ids: list[str] = []          # the parts this one divides into
     tags: list[str] = []               # our feature tags derived from the above
 
 
@@ -126,6 +128,20 @@ class ScheduleItem(BaseModel):
     waitlist_position: int | None = None
     waitlist_count: int = 0
     conflicts_with_25live: bool = False
+    space_name: str | None = None  # for a room made of parts: which part the booking is in
+
+
+class SpacePart(BaseModel):
+    id: str
+    name: str
+    capacity: int | None = None
+    group: str | None = None        # the area it sits in, e.g. "Student Union - 203-01 (2nd Floor Ballroom Lobby All Spaces)"
+
+
+class RoomParts(BaseModel):
+    parts: list[SpacePart] = []     # bookable parts of this room (a lobby's tables)
+    parents: list[SpacePart] = []   # the whole this room is a part of
+    has_diagram: bool = False       # 25Live has a layout diagram for it
 
 
 # =============================================================================
@@ -320,16 +336,28 @@ async def _location_info() -> dict[str, dict]:
         return {}
 
 
+def _raise_first_error(results: list) -> None:
+    """After gather(..., return_exceptions=True): re-raise the first failure,
+    turning a 25Live failure into a 502."""
+    for res in results:
+        if isinstance(res, live25.Live25Error):
+            raise _upstream_error(res)
+        if isinstance(res, BaseException):
+            raise res
+
+
 async def _merged_rooms(db: Session) -> list[dict]:
-    # Fetch 25Live and query our DB at the same time.
-    try:
-        live_rooms, info, (db_rooms, pending, waitlist) = await asyncio.gather(
-            live25.list_spaces(),
-            _location_info(),
-            run_in_threadpool(_room_list_data, db),
-        )
-    except live25.Live25Error as e:
-        raise _upstream_error(e)
+    # Fetch 25Live and query our DB at the same time. Wait for BOTH to finish even
+    # if 25Live fails right away, so the database query never keeps running (and
+    # using the session) after the request has ended.
+    results = await asyncio.gather(
+        live25.list_spaces(),
+        _location_info(),
+        run_in_threadpool(_room_list_data, db),
+        return_exceptions=True,
+    )
+    _raise_first_error(results)
+    live_rooms, info, (db_rooms, pending, waitlist) = results
     for r in live_rooms:
         extra = info.get(r["id"])
         if extra:
@@ -649,17 +677,95 @@ async def rooms_map(
                     longitude=coords.get(r["id"], (None, None))[1]) for r in rooms]
 
 
+class Live25BookingItem(BaseModel):
+    room_id: str
+    room_name: str
+    building: str | None = None
+    name: str                      # the 25Live event's name
+    status: str | None = None      # Confirmed / Tentative
+    start: dt.datetime             # room held from (includes setup)
+    end: dt.datetime
+    event_start: dt.datetime
+    event_end: dt.datetime
+
+
+MAX_LIVE25_ROOMS = 400
+
+
+@router.get("/live25-schedule", response_model=list[Live25BookingItem])
+async def live25_schedule(
+    start: dt.date | None = None,
+    end: dt.date | None = None,
+    room_ids: str = Query("", description="Comma-separated 25Live room ids (at most 400)"),
+    all_rooms: bool = Query(False, description="Every 25Live room, instead of a list of ids"),
+    db: Session = Depends(get_db),
+    current_user: User = Security(get_current_user, scopes=["read:rooms"]),
+):
+    """The official 25Live bookings for many rooms at once, from `start` through `end`
+    (default a week, max 8 days). For a calendar that shows several rooms together.
+    Answers from the background-refreshed cache, like the availability search."""
+    start = start or campus_now().date()
+    end = end or start + dt.timedelta(days=6)
+    if end < start:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="end is before start.")
+    end = min(end, start + dt.timedelta(days=7))
+    merged = {r["id"]: r for r in await _merged_rooms(db)}
+    if all_rooms:
+        ids = [i for i in merged if str(i).isdigit()]
+    else:
+        ids = list(dict.fromkeys(i for i in (x.strip() for x in room_ids.split(",")) if i.isdigit()))
+    if not all_rooms and len(ids) > MAX_LIVE25_ROOMS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Too many rooms ({len(ids)}). Narrow the filters to {MAX_LIVE25_ROOMS} or fewer.")
+    window_start = dt.datetime.combine(start, dt.time())
+    window_end = dt.datetime.combine(end + dt.timedelta(days=1), dt.time())
+
+    names = merged
+    results = await asyncio.gather(*(live25.get_bookings(i, start, end) for i in ids), return_exceptions=True)
+    out = []
+    for room_id, bookings in zip(ids, results):
+        if isinstance(bookings, Exception):
+            continue   # one room 25Live can't answer for shouldn't hide the rest
+        room = names.get(room_id, {})
+        for b in bookings:
+            if b["kind"] != "event" or not (b["start"] < window_end and b["end"] > window_start):
+                continue
+            out.append(Live25BookingItem(room_id=room_id, room_name=room.get("name") or room_id, building=room.get("building"),
+                                         name=b["name"] or "25Live booking", status=b["state"], start=b["start"], end=b["end"],
+                                         event_start=b["event_start"], event_end=b["event_end"]))
+    out.sort(key=lambda i: (i.start, i.room_name))
+    return out
+
+
+@router.get("/{room_id}/parts", response_model=RoomParts)
+async def room_parts(
+    room_id: str,
+    current_user: User = Security(get_current_user, scopes=["read:rooms"]),
+):
+    """The parts a room divides into (a lobby's tables) and the whole it belongs to, from 25Live."""
+    if not room_id.isdigit():
+        return RoomParts()
+    try:
+        rel = await live25.get_relations(room_id)
+    except live25.Live25Error as e:
+        raise _upstream_error(e)
+    return RoomParts(parts=[SpacePart(**c) for c in rel["children"]], parents=[SpacePart(**p) for p in rel["parents"]],
+                     has_diagram=rel["diagram"])
+
+
 @router.get("/{room_id}/photo")
 async def room_photo(
     room_id: str,
+    diagram: bool = False,
 ):
     """The room's layout photo from 25Live, served through our API, so the
-    frontend can use it directly: <img src="/rooms/1810/photo">."""
+    frontend can use it directly: <img src="/rooms/1810/photo">.
+    `?diagram=true` gives the layout diagram (a floor plan) instead."""
     if not room_id.isdigit():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo for this room.")
     try:
         detail = await live25.get_space_detail(room_id)
-        photo_id = (detail or {}).get("layout_photo_id")
+        photo_id = (detail or {}).get("layout_diagram_id" if diagram else "layout_photo_id")
         if not photo_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail="This room has no photo in 25Live.")
@@ -719,6 +825,7 @@ async def get_room_schedule(
     start: dt.date | None = None,
     end: dt.date | None = None,
     include_closed: bool = False,
+    with_related: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Security(get_current_user, scopes=["read:rooms"]),
 ):
@@ -726,7 +833,8 @@ async def get_room_schedule(
     from `start` (default today) through `end` (default a week later, max 30 days).
 
     `include_closed` adds 25Live's daily closed hours; our RoomClosures
-    (maintenance, holidays) are always included.
+    (maintenance, holidays) are always included. `with_related` also includes the
+    bookings of the room's parts and its whole, each labelled with `space_name`.
     """
     start = start or campus_now().date()
     end = end or start + dt.timedelta(days=7)
@@ -740,15 +848,20 @@ async def get_room_schedule(
     is_25live_room = room_id.isdigit()
 
     async def fetch_live():
-        return await live25.get_bookings(room_id, start, end) if is_25live_room else []
+        if not is_25live_room:
+            return []
+        if with_related:
+            return await live25.get_bookings_with_related(room_id, start, end)
+        return await live25.get_bookings(room_id, start, end)
 
-    try:
-        live_bookings, (room, requests, waitlisted, closures) = await asyncio.gather(
-            fetch_live(),
-            run_in_threadpool(_schedule_data, db, room_id, window_start, window_end),
-        )
-    except live25.Live25Error as e:
-        raise _upstream_error(e)
+    # Wait for both even if 25Live fails right away (see _merged_rooms).
+    results = await asyncio.gather(
+        fetch_live(),
+        run_in_threadpool(_schedule_data, db, room_id, window_start, window_end),
+        return_exceptions=True,
+    )
+    _raise_first_error(results)
+    live_bookings, (room, requests, waitlisted, closures) = results
 
     if room is None and not is_25live_room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found.")

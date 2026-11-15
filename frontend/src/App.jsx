@@ -17,6 +17,10 @@ import ClubProfile from './pages/ClubProfile.jsx';
 import Profile from './pages/Profile.jsx';
 import Login from './pages/Login.jsx';
 import CreateAccount from './pages/CreateAccount.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
+import VerifyEmail from './pages/VerifyEmail.jsx';
+import ConfirmEmail from './pages/ConfirmEmail.jsx';
 import Verifications from './pages/Verifications.jsx';
 import { setKnownClubs } from './components/OrgLink.jsx';
 import * as api from './api.js';
@@ -25,7 +29,7 @@ import Analytics from './pages/Analytics.jsx';
 import Export25Live from './pages/Export25Live.jsx';
 
 const D = getDays(3);
-const HOME = { leader:"find", admin:"approvals", venue:"rooms" };
+const HOME = { leader:"find", admin:"approvals", venue:"rooms", general:"find" };
 
 export default function App() {
   const { path, navigate, back } = useRoute();
@@ -35,7 +39,7 @@ export default function App() {
   const [bootError,setBootError]=useState("");
   const afterLogin=useRef(null); // deep link the user wanted before being sent to /login
   const [role,setRole]=useState("leader");
-  const [profiles,setProfiles]=useState(PROFILES);
+  const [profiles,setProfiles]=useState(() => ({ ...PROFILES, general:{ name:"Guest", email:"", username:"guest" } }));
   const [openRoom,setOpenRoom]=useState(null);
 
   const [requests,setRequests]=useState(api.LIVE ? [] : [
@@ -47,7 +51,7 @@ export default function App() {
   // ---- live mode (FastAPI server) ----
   const [dataLoading,setDataLoading]=useState(false);   // true while a live login loads its first data
   const [rooms,setRooms]=useState(api.LIVE ? [] : ROOMS);
-  const [roomsLoading,setRoomsLoading]=useState(false);
+  const [roomsLoading,setRoomsLoading]=useState(api.LIVE);   // live: loading until the first room list arrives
   const [apiError,setApiError]=useState("");
 
   // clubs: mock data by default; the database's organizations in live mode
@@ -121,16 +125,33 @@ export default function App() {
     const byId = Object.fromEntries(roomList.map(x => [x.id, x]));
     return raw.map(x => api.adaptRequest(x, byId));
   };
-  const loadRequests = async (r, roomList) => {
-    try { setRequests(adaptRequests(await fetchRequests(r), roomList)); }
-    catch (e) { setApiError(e.message); }
+  // Every load gets a number, and only the newest one is allowed to update the list. Without this, a
+  // background refresh that started before an approval can finish after it and show the old "pending" status.
+  const reqLoadSeq = useRef(0);
+  const deciding = useRef(0);   // approvals/denials still being saved; background refreshes wait for them
+  const loadRequests = async (r, roomList, { background=false } = {}) => {
+    if (background && deciding.current > 0) return;
+    const seq = ++reqLoadSeq.current;
+    try {
+      const list = adaptRequests(await fetchRequests(r), roomList);
+      if (seq === reqLoadSeq.current) setRequests(list);
+    }
+    catch (e) { if (seq === reqLoadSeq.current) setApiError(e.message); }
   };
   const loadLive = async (r, user) => {
     setDataLoading(true); setRooms([]); setClubs([]);
     setRequests([]); setRoomsLoading(true); setApiError("");
-    setMemberships([]); setVerifs([]); setMemLoaded(r !== "leader"); loadClubs();
-    setProfiles(p => ({ ...p, [r]: { ...p[r], id:user.id, name:user.name, email:user.email } }));
-    setThreads([]); setPosts([]); loadConvos();
+    setMemberships([]); setVerifs([]); setMemLoaded(r !== "leader");
+    setProfiles(p => ({ ...p, [r]: { ...p[r], id:user.id, name:user.name, email:user.email || "", username:user.username || "" } }));
+    setThreads([]); setPosts([]);
+    if (r === "general") {
+      // General accounts can only search rooms; the server would refuse clubs, messages, forum and requests.
+      try { const list = (await api.rooms()).map(api.adaptRoom); setRooms(list); }
+      catch (e) { setApiError(e.message); }
+      setRoomsLoading(false); setDataLoading(false);
+      return;
+    }
+    loadClubs(); loadConvos();
     if (r !== "venue") { setPostsLoading(true); loadForum().then(() => setPostsLoading(false)); }
     // Start everything at once instead of one call after another. Rooms come from 25Live and are
     // the slowest, so requests don't wait for them: each request already carries its room's name.
@@ -154,20 +175,27 @@ export default function App() {
       if (!orgId) throw new Error("You aren't verified for a club yet. Add your club in your profile and wait for an admin to verify you.");
       const failed = [];
       for (const p of picks) {
-        try { await api.createRequest(api.requestBody(room, orgId, p, eventName || `${org} event`)); }
+        try { await api.createRequest(api.requestBody(p.room || room, orgId, p, eventName || `${org} event`)); }
         catch (e) { failed.push({ pick:p, msg:e.message }); }
       }
       await loadRequests(role, rooms);
       return failed;
     }
-    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:eventName }))]);
+    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room:p.room || room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:p.event || eventName,
+      startAt:new Date(`${p.key}T${p.start}`), endAt:new Date(`${p.key}T${p.end}`) }))]);
     return [];
   };
   const decide = async (id,status,reason) => {
     if (api.LIVE) {
+      reqLoadSeq.current++;   // throw away any refresh already on its way back with the old status
+      deciding.current++;
+      setRequests(r => r.map(req => req.id===id ? { ...req, status, reason } : req));   // show the decision right away
+      let failure = null;
       try { status==="approved" ? await api.approve(id) : await api.deny(id, reason); setApiError(""); }
-      catch (e) { setApiError(e.message); }
+      catch (e) { setApiError(e.message); failure = e; }
+      finally { deciding.current--; }
       await loadRequests(role, rooms);
+      if (failure) throw failure;
       return;
     }
     setRequests(r => r.map(req => req.id===id ? { ...req, status, reason } : req));
@@ -194,14 +222,15 @@ export default function App() {
       setMockWl(m => ({ ...m, [room.id]:[...(m[room.id] || []), ...picks.map((p,i) => ({ position:pos[i],
         start:`${p.key}T${p.start}:00`, end:`${p.key}T${p.end}:00`, is_yours:true, request_id:`mock-${Date.now()}-${i}` }))] }));
       setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`,
-        status:"waitlisted", position:pos[i], event:eventName }))]);
+        status:"waitlisted", position:pos[i], event:p.event || eventName,
+        startAt:new Date(`${p.key}T${p.start}`), endAt:new Date(`${p.key}T${p.end}`) }))]);
       return [];
     }
     const orgId = orgIds[org];
     if (!orgId) throw new Error("You aren't verified for a club yet.");
     const failed = [];
     for (const p of picks) {
-      try { await api.createRequest({ ...api.requestBody(room, orgId, p, eventName), join_waitlist_if_taken:true }); }
+      try { await api.createRequest({ ...api.requestBody(p.room || room, orgId, p, eventName), join_waitlist_if_taken:true }); }
       catch (e) { failed.push({ pick:p, msg:e.message }); }
     }
     await loadWaitlist(room);
@@ -273,7 +302,10 @@ export default function App() {
 
   // ---- routing: the URL is the source of truth for which page is showing ----
   const seg = path.split("/").filter(Boolean).map(dec);
-  const authView = seg[0]==="login" ? "login" : seg[0]==="signup" ? "signup" : null;
+  const authView = seg[0]==="login" ? "login" : seg[0]==="signup" ? "signup" : seg[0]==="forgot-password" ? "forgot" : null;
+  // Pages opened from an emailed link. They work whether or not the person is logged in.
+  const linkView = seg[0]==="reset-password" ? "reset" : seg[0]==="verify-email" ? "verify" : seg[0]==="confirm-email" ? "confirm" : null;
+  const linkToken = new URLSearchParams(window.location.search).get("token") || "";
   const page = seg[0] || "";
   const viewingClub = seg[0]==="clubs" && seg[1] ? seg[1] : null;
   const viewingRoomId = seg[0]==="find" && seg[1]==="rooms" && seg[2] ? seg[2] : null;
@@ -281,10 +313,10 @@ export default function App() {
 
   // live: one refresher for everything other people can change
   useEffect(() => {
-    if (!api.LIVE || !signedIn) return;
+    if (!api.LIVE || !signedIn || role === "general") return;   // general accounts: nothing to keep fresh
     const jobs = [
       { every: page==="messages" ? 3000 : 12000, run: loadConvos },
-      { every: 15000, run: () => loadRequests(role, rooms) },
+      { every: ["approvals","requests","rooms"].includes(page) ? 5000 : 15000, run: () => loadRequests(role, rooms, { background:true }) },
       ...(role==="admin" ? [{ every: 15000, run: loadVerifs }] : []),
       ...(role==="leader" ? [{ every: 15000, run: loadMemberships }] : []),
       ...(page==="forum" ? [{ every: 15000, run: loadForum }] : []),
@@ -334,7 +366,10 @@ export default function App() {
     setRole(r); setActiveThread(null); setSignedIn(true);
     const want = restored ? window.location.pathname : afterLogin.current;
     afterLogin.current = null;
-    if (!want || !allowed(r, want)) navigate("/"+HOME[r], { replace:true });
+    // Opening an emailed link (reset / verify / confirm) while logged in: stay on that page.
+    const onLinkPage = restored && /^\/(reset-password|verify-email|confirm-email)(\/|$)/.test(window.location.pathname);
+    if (onLinkPage) { /* the link page shows; its button moves on */ }
+    else if (!want || !allowed(r, want)) navigate("/"+HOME[r], { replace:true });
     else if (!restored) navigate(want, { replace:true });
     if (api.LIVE && user) loadLive(r, user);
   };
@@ -353,7 +388,7 @@ export default function App() {
 
   // Route guards: signed-out users go to /login; signed-in users can't sit on /login or a page their role doesn't have.
   useEffect(() => {
-    if (booting || bootError) return;
+    if (booting || bootError || linkView) return;
     if (!signedIn) {
       if (!authView) { afterLogin.current = path==="/" ? null : path; navigate("/login", { replace:true }); }
     } else if (authView || path==="/" || !allowed(role, path)) {
@@ -367,8 +402,16 @@ export default function App() {
       <div><p style={{ fontWeight:600, color:"var(--red)" }}>{bootError}</p>
         <button onClick={restore} style={{ padding:"10px 18px", borderRadius:10, border:"2px solid var(--ink)", fontWeight:700 }}>Try again</button></div>
     </div>);
+  const toLogin = () => { if (signedIn) { api.setToken(null); setSignedIn(false); } navigate("/login"); };
+  if (linkView==="reset") return <ResetPassword token={linkToken} onDone={toLogin} onRequestNew={()=>{ if (signedIn) { api.setToken(null); setSignedIn(false); } navigate("/forgot-password"); }} />;
+  if (linkView==="verify") return <VerifyEmail token={linkToken} onDone={toLogin} />;
+  // A general account adding an email: works logged in or out (the link may open on another device).
+  if (linkView==="confirm") return <ConfirmEmail token={linkToken} signedIn={signedIn}
+    onConfirmed={email => { if (signedIn) setProfiles(p => ({ ...p, [role]: { ...p[role], email } })); }}
+    onDone={() => navigate(signedIn ? "/profile" : "/login")} />;
+  if (!signedIn && authView==="forgot") return <ForgotPassword onBack={()=>navigate("/login")} />;
   if (!signedIn && authView==="signup") return <CreateAccount onCreate={signIn} onLogin={()=>navigate("/login")} />;
-  if (!signedIn) return <Login onLogin={signIn} onSignup={()=>navigate("/signup")} />;
+  if (!signedIn) return <Login onLogin={signIn} onSignup={()=>navigate("/signup")} onForgot={()=>navigate("/forgot-password")} />;
   if (authView) return null; // redirecting away from /login
 
   return (
@@ -389,7 +432,8 @@ export default function App() {
         <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfId={selfId} onBack={()=>back("/clubs")} onMessagePerson={messagePerson} />
       ) : viewingRoomId!=null ? (
         viewingRoom
-          ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={setOpenRoom} />
+          ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={role==="general" ? undefined : setOpenRoom}
+              role={role} orgs={leaderOrgs} orgIds={orgIds} />
           : <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"24px", fontWeight:600 }}>
               {roomsLoading ? "Loading room…" : <>Room not found. <button onClick={()=>navigate("/find")} style={{ color:"var(--link)", fontWeight:700 }}>Back to search</button></>}
             </main>
@@ -397,6 +441,7 @@ export default function App() {
         <>
           {dataLoading && ["requests","approvals","verifications"].includes(page) && <LoadingScreen inline label="Loading your data…" />}
           {role==="leader" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} onBook={setOpenRoom} />}
+          {role==="general" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} />}
           {role==="leader" && page==="requests" && !dataLoading && <MyRequests onCancel={cancelRequest} clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
           {role==="admin" && page==="approvals" && !dataLoading && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
           {role==="admin" && page==="verifications" && !dataLoading && <Verifications items={verifs} onApprove={approveVerif} onReject={rejectVerif} onOpenClub={openClub} />}
@@ -408,15 +453,16 @@ export default function App() {
           {page==="clubs" && <Clubs clubs={clubs} loading={clubsLoading} onOpenClub={openClub} />}
           {page==="profile" && <Profile key={role} role={role} profile={profiles[role]} onOpenClub={openClub}
             onSave={patch=>setProfiles(p=>({ ...p, [role]:{ ...p[role], ...patch } }))}
-            memberships={memberships} membershipsLoaded={memLoaded} onSearchOrgs={searchOrgOptions} onJoin={joinOrg} />}
+            memberships={memberships} membershipsLoaded={memLoaded} onSearchOrgs={searchOrgOptions} onJoin={joinOrg}
+            onChangePassword={api.LIVE ? api.changePassword : undefined} onForgotPassword={api.LIVE ? api.forgotPassword : undefined} />}
           {page==="messages" && <Messages threads={threads} onSend={sendMessage} onStartChat={startChat}
             activeId={activeThread} setActiveId={setActiveThread} selfId={selfId} onSearchPeople={searchPeople} unreadMap={unreadMap} />}
           {page==="map" && <CampusMapPage rooms={rooms} loading={roomsLoading}
-            onView={role==="leader" ? openRoomDetail : undefined} onBook={role==="leader" ? setOpenRoom : undefined} />}
+            onView={role==="leader" || role==="general" ? openRoomDetail : undefined} onBook={role==="leader" ? setOpenRoom : undefined} />}
         </>
       )}
 
-      {openRoom && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={leaderOrgs}
+      {openRoom && role!=="general" && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={leaderOrgs}
         onJoinWaitlist={joinWaitlist} waitlistLine={api.LIVE ? waitlistLine : (mockWl[openRoom?.id] || [])} />}
     </div>
   );

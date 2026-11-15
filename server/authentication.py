@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, SecurityScopes
 from jose import JWTError, jwt
 from pydantic import ValidationError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -71,9 +72,20 @@ def scopes_for_user(user: User) -> list[str]:
 
 
 # --- Authentication helpers ---
-def authenticate_user(db: Session, email: str, password: str) -> User | None:
-    """Return the user if the email exists and the password matches, else None."""
-    user = db.query(User).filter(User.email == email).first()
+def find_login_user(db: Session, login: str) -> User | None:
+    """The account a login name belongs to: an email if it has an "@" (usernames
+    can't), otherwise a username, ignoring case."""
+    login = (login or "").strip()
+    if not login:
+        return None
+    if "@" in login:
+        return db.query(User).filter(User.email == login).first()
+    return db.query(User).filter(func.lower(User.username) == login.lower()).first()
+
+
+def authenticate_user(db: Session, login: str, password: str) -> User | None:
+    """Return the user if the email or username exists and the password matches, else None."""
+    user = find_login_user(db, login)
     if not user or not verify_password(password, user.password_hash):
         return None
     return user

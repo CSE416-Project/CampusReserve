@@ -41,3 +41,5 @@ main:focus { outline:none; }  /* the skip link focuses <main>; no ring around th
   :root { --ink-soft:#1B2A4A; --ink-faint:#33415E; --line:#1B2A4A; }
   body { background-image:none; }
 }
+/* Messages: the conversation scrolls inside its own box, so the message box stays on screen. */
+.msg-pane, .msg-list { height: calc(100vh - 190px); height: calc(100dvh - 190px); min-height: 380px; }

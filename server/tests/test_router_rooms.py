@@ -646,3 +646,77 @@ def test_schedule_unknown_local_room_is_404(client, auth, leader):
 def test_schedule_is_502_when_25live_is_down(client, auth, leader, live):
     live.down = True
     assert schedule(client, auth, leader, "1810").status_code == 502
+
+
+# =============================================================================
+# GET /rooms/live25-schedule  (25Live bookings for many rooms, for the admin calendar)
+# =============================================================================
+
+def live_schedule(client, auth, user, ids, **params):
+    day = (campus_now() + dt.timedelta(days=DAYS_AHEAD)).date()
+    params.setdefault("start", day.isoformat())
+    params.setdefault("end", day.isoformat())
+    return client.get("/rooms/live25-schedule", params={"room_ids": ids, **params}, headers=auth(user))
+
+
+def test_live25_schedule_returns_bookings_for_several_rooms(client, auth, leader, live):
+    live.space("1810", name="SAC 302", building="Student Activities Center")
+    live.space("1811", name="SAC 303", building="Student Activities Center")
+    live.booking("1810", at(9), at(10), name="Chess Club")
+    live.booking("1811", at(11), at(12), name="Film Night")
+
+    r = live_schedule(client, auth, leader, "1810,1811")
+
+    assert r.status_code == 200
+    rows = r.json()
+    assert [(i["room_name"], i["name"]) for i in rows] == [("SAC 302", "Chess Club"), ("SAC 303", "Film Night")]
+    assert rows[0]["building"] == "Student Activities Center"
+
+
+def test_live25_schedule_leaves_out_closed_hours_and_other_days(client, auth, leader, live):
+    live.space("1810")
+    live.booking("1810", at(9), at(10), name="Real Event")
+    live.booking("1810", at(0), at(7), name="Closed", kind="closed")
+    live.booking("1810", at(9) + dt.timedelta(days=3), at(10) + dt.timedelta(days=3), name="Another Day")
+
+    names = [i["name"] for i in live_schedule(client, auth, leader, "1810").json()]
+
+    assert names == ["Real Event"]
+
+
+def test_live25_schedule_skips_a_room_that_fails_but_returns_the_rest(client, auth, leader, live):
+    live.space("1810")
+    live.space("1811", name="SAC 303")
+    live.booking("1811", at(9), at(10), name="Still Here")
+    live.failing.add("1810")
+
+    r = live_schedule(client, auth, leader, "1810,1811")
+
+    assert r.status_code == 200
+    assert [i["name"] for i in r.json()] == ["Still Here"]
+
+
+def test_live25_schedule_ignores_non_25live_ids_and_limits_the_number_of_rooms(client, auth, leader, live):
+    live.space("1810")
+    live.booking("1810", at(9), at(10), name="Event")
+    assert [i["name"] for i in live_schedule(client, auth, leader, "1810,not-a-number").json()] == ["Event"]
+    too_many = ",".join(str(1000 + n) for n in range(401))
+    r = live_schedule(client, auth, leader, too_many)
+    assert r.status_code == 400 and "Narrow" in r.json()["detail"]
+
+
+def test_live25_schedule_all_rooms_needs_no_id_list_and_has_no_room_limit(client, auth, leader, live):
+    live.space("1810", name="SAC 302")
+    live.space("1811", name="SAC 303")
+    live.booking("1810", at(9), at(10), name="Chess Club")
+    live.booking("1811", at(11), at(12), name="Film Night")
+    day = (campus_now() + dt.timedelta(days=DAYS_AHEAD)).date().isoformat()
+
+    r = client.get("/rooms/live25-schedule", params={"all_rooms": "true", "start": day, "end": day}, headers=auth(leader))
+
+    assert r.status_code == 200
+    assert [i["name"] for i in r.json()] == ["Chess Club", "Film Night"]
+
+
+def test_live25_schedule_needs_login(client):
+    assert client.get("/rooms/live25-schedule", params={"room_ids": "1810"}).status_code == 401

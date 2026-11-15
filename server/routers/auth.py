@@ -1,17 +1,24 @@
 """Authentication endpoints: register, login, and current-user."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
+from models.auth_token import KIND_ADD_EMAIL, KIND_RESET, KIND_VERIFY
 from models.user import User, UserRole
+from services import auth_tokens, mailer
 from authentication import (
     authenticate_user,
     create_access_token,
     hash_password,
     get_current_user,
+    verify_password,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -24,9 +31,43 @@ class RegisterRequest(BaseModel):
     password: str
 
 
+class GeneralRegisterRequest(BaseModel):
+    """A general account: just a username and a password."""
+    # Letters, numbers, dots, dashes and underscores. No "@", so a username can
+    # never be mistaken for an email at login.
+    username: str = Field(min_length=3, max_length=30, pattern=r"^[A-Za-z0-9._-]+$")
+    password: str = Field(min_length=8, max_length=128)
+    # Optional, only for password resets. We email a link to confirm it first.
+    email: EmailStr | None = None
+
+
+class AccountEmailResponse(BaseModel):
+    email: str | None             # confirmed: password-reset emails go here
+    pending_email: str | None     # added, waiting for the person to open the link
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class EmailRequest(BaseModel):
+    email: EmailStr
+
+
+class TokenRequest(BaseModel):
+    token: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class UserResponse(BaseModel):
     id: str
-    email: EmailStr
+    email: EmailStr | None = None      # general accounts have no email
+    username: str | None = None        # only general accounts have one
     name: str
     role: UserRole
 
@@ -58,9 +99,142 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         role=UserRole.CLUB_LEADER,
     )
     db.add(user)
+    db.flush()
+    raw = auth_tokens.create_token(db, user, KIND_VERIFY)
     db.commit()
     db.refresh(user)
-    return UserResponse(id=str(user.id), email=user.email, name=user.name, role=user.role)
+    _email_verify_link(user, raw)
+    return _user_response(user)
+
+
+def _user_response(user: User) -> UserResponse:
+    return UserResponse(id=str(user.id), email=user.email, username=user.username,
+                        name=user.name, role=user.role)
+
+
+USERNAME_TAKEN = "That username is taken. Try another one."
+
+
+@router.post("/register-general", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register_general(payload: GeneralRegisterRequest, db: Session = Depends(get_db)):
+    """Create a general account with a username and password. No email and no
+    verification: it can log in right away, and can search rooms but not book them."""
+    username = payload.username.strip()
+    if db.query(User.id).filter(func.lower(User.username) == username.lower()).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=USERNAME_TAKEN)
+    email = str(payload.email).strip() if payload.email else None
+    if email and _find_user(db, email):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN)
+    user = User(username=username, email=None, name=username,
+                password_hash=hash_password(payload.password), role=UserRole.GENERAL)
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:  # someone took the same username a moment ago
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=USERNAME_TAKEN)
+    db.refresh(user)
+    if email:  # the account works right away; the email only counts once it's confirmed
+        _send_add_email_link(db, user, email)
+    return _user_response(user)
+
+
+# --- Optional email on a general account (for password resets) ---
+
+EMAIL_TAKEN = "That email is already used by another account."
+
+
+def _send_add_email_link(db: Session, user: User, email: str) -> None:
+    raw = auth_tokens.create_token(db, user, KIND_ADD_EMAIL, email=email)
+    db.commit()
+    mailer.send_email(
+        email, "Confirm your email for CampusReserve",
+        f"Hi {user.name},\n\nOpen this link to add this email to your CampusReserve account "
+        f"({user.username}). We'll only use it if you need to reset your password:\n\n"
+        f"{mailer.app_url()}/confirm-email?token={raw}\n\n"
+        "The link works for 24 hours. If you didn't ask for this, you can ignore this email.\n")
+
+
+def _general_only(user: User) -> None:
+    if user.role != UserRole.GENERAL:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Only general accounts can change their email here.")
+
+
+def _email_state(db: Session, user: User) -> AccountEmailResponse:
+    return AccountEmailResponse(email=user.email, pending_email=auth_tokens.pending_email(db, user))
+
+
+@router.get("/email", response_model=AccountEmailResponse)
+def get_account_email(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """This account's email, and any address added but not confirmed yet."""
+    return _email_state(db, user)
+
+
+@router.put("/email", response_model=AccountEmailResponse)
+def set_account_email(payload: EmailRequest, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Add or change a general account's email. Nothing changes until the person opens
+    the link we send to the new address; until then it shows as pending_email."""
+    _general_only(user)
+    email = str(payload.email).strip()
+    if user.email and user.email.lower() == email.lower():
+        auth_tokens.cancel_pending_email(db, user)
+        db.commit()
+        return _email_state(db, user)
+    owner = _find_user(db, email)
+    if owner and owner.id != user.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN)
+    if auth_tokens.recently_sent(db, user, KIND_ADD_EMAIL):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="We just sent a link. Wait a minute before trying again.")
+    _send_add_email_link(db, user, email)
+    return _email_state(db, user)
+
+
+@router.delete("/email", response_model=AccountEmailResponse)
+def remove_account_email(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Remove a general account's email (and cancel any waiting link). Its username
+    still works for logging in; it just can't get password-reset emails."""
+    _general_only(user)
+    auth_tokens.cancel_pending_email(db, user)
+    user.email = None
+    db.commit()
+    return _email_state(db, user)
+
+
+@router.post("/confirm-email", response_model=AccountEmailResponse)
+def confirm_account_email(payload: TokenRequest, db: Session = Depends(get_db)):
+    """The link in the "confirm your email" message lands here (through the website).
+    Works without being logged in, so it can be opened on any device."""
+    row = auth_tokens.find_valid(db, payload.token, KIND_ADD_EMAIL)
+    if not row or not row.email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This link is invalid or has expired. Add your email again from your profile.")
+    user = db.query(User).filter(User.id == row.user_id).first()
+    owner = _find_user(db, row.email)
+    if owner and owner.id != user.id:   # someone else took it after the link was sent
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN)
+    user.email = row.email
+    row.used_at = datetime.utcnow()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EMAIL_TAKEN)
+    return _email_state(db, user)
+
+
+def _email_verify_link(user: User, raw: str) -> None:
+    mailer.send_email(
+        user.email, "Confirm your CampusReserve email",
+        f"Hi {user.name},\n\nWelcome to CampusReserve! Open this link to confirm your email "
+        f"and finish setting up your account:\n\n{mailer.app_url()}/verify-email?token={raw}\n\n"
+        "The link works for 24 hours. If you didn't create an account, you can ignore this email.\n")
+
+
+def _find_user(db: Session, email: str) -> User | None:
+    return db.query(User).filter(func.lower(User.email) == email.strip().lower()).first()
 
 
 @router.post("/token", response_model=TokenResponse)
@@ -68,23 +242,98 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    """Log in with email (as the username field) and password; returns a token."""
+    """Log in with an email or a general account's username (in the username
+    field) and password; returns a token."""
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
+            detail="Incorrect email, username or password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # Only said after the password was right, so this can't be used to find out who has an account.
+    # 403, not 401: a 401 makes the website think a saved login expired.
+    if auth_tokens.is_pending_verification(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "email_not_verified",
+                    "message": "Please confirm your email first. We sent you a link when you signed up."},
+        )
     return TokenResponse(access_token=create_access_token(user))
+
+
+@router.post("/verify-email", status_code=status.HTTP_204_NO_CONTENT)
+def verify_email(payload: TokenRequest, db: Session = Depends(get_db)):
+    """The link in the signup email lands here (through the website). After this the person can log in."""
+    row = auth_tokens.find_valid(db, payload.token, KIND_VERIFY)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This confirmation link is invalid or has expired. Log in to get a new one.")
+    user = db.query(User).filter(User.id == row.user_id).first()
+    auth_tokens.mark_verified(db, user)
+    db.commit()
+
+
+@router.post("/resend-verification", status_code=status.HTTP_204_NO_CONTENT)
+def resend_verification(payload: EmailRequest, db: Session = Depends(get_db)):
+    """Send the signup link again. Always answers the same, so it can't be used to look up accounts."""
+    user = _find_user(db, payload.email)
+    if user and auth_tokens.is_pending_verification(db, user) and not auth_tokens.recently_sent(db, user, KIND_VERIFY):
+        raw = auth_tokens.create_token(db, user, KIND_VERIFY)
+        db.commit()
+        _email_verify_link(user, raw)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+def forgot_password(payload: EmailRequest, db: Session = Depends(get_db)):
+    """Email a link for choosing a new password. Always answers the same, whether or not the email has an account."""
+    user = _find_user(db, payload.email)
+    if user and user.is_active and not auth_tokens.recently_sent(db, user, KIND_RESET):
+        raw = auth_tokens.create_token(db, user, KIND_RESET)
+        db.commit()
+        mailer.send_email(
+            user.email, "Reset your CampusReserve password",
+            f"Hi {user.name},\n\nSomeone (hopefully you) asked to reset your CampusReserve password. "
+            f"Open this link to choose a new one:\n\n{mailer.app_url()}/reset-password?token={raw}\n\n"
+            "The link works for 1 hour and only once. If you didn't ask for this, you can ignore this email; "
+            "your password has not changed.\n")
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Set a new password using the emailed link. The link works once."""
+    row = auth_tokens.find_valid(db, payload.token, KIND_RESET)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This reset link is invalid or has expired. Ask for a new one.")
+    user = db.query(User).filter(User.id == row.user_id).first()
+    user.password_hash = hash_password(payload.new_password)
+    row.used_at = datetime.utcnow()
+    auth_tokens.mark_verified(db, user)   # they got an email at this address, so it is confirmed
+    db.commit()
 
 
 @router.get("/me", response_model=UserResponse)
 def read_me(current_user: User = Depends(get_current_user)):
     """Return the currently logged-in user."""
-    return UserResponse(
-        id=str(current_user.id),
-        email=current_user.email,
-        name=current_user.name,
-        role=current_user.role,
-    )
+    return _user_response(current_user)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Change your own password. You must give the current one.
+
+    A wrong current password is a 400, not a 401, because a 401 makes the
+    website think your login expired and signs you out."""
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Your current password is incorrect.")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Choose a new password that is different from your current one.")
+    current_user.password_hash = hash_password(payload.new_password)
+    db.commit()

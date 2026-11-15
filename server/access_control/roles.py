@@ -29,4 +29,8 @@ ROLES = {
         "read:messages",
         "send:messages",
     ],
+    # General accounts (username + password, no verification) can only search rooms:
+    # room lists, details, schedules, availability and the campus map. Not BASE_SCOPES,
+    # so no requests, waitlists or forum.
+    "general": ["read:rooms"],
 }

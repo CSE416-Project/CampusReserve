@@ -3,6 +3,7 @@ import { roomNotes, upcomingEvents } from '../data/mock.js';
 import * as api from '../api.js';
 import Pill from '../components/Pill.jsx';
 import Feature from '../components/Feature.jsx';
+import RoomPhoto from '../components/RoomPhoto.jsx';
 
 const SCHEDULE_DAYS = 30;  // the API returns at most 30 days at a time
 const EVENTS_PER_PAGE = 5;
@@ -55,7 +56,7 @@ export default function RoomDetail({ room, onBack, onBook, role, orgs = [], orgI
     if (!live) { setComments(c => [...c, { org:"Robotics Club", text }]); setDraft(""); return; }
     setPosting(true); setCError("");
     try {
-      const orgId = isAdmin ? null : orgIds[asOrg];
+      const orgId = isAdmin ? null : orgIds[asOrg || orgs[0]];
       if (!isAdmin && !orgId) throw new Error("Pick a club to comment as.");
       const c = await api.postRoomComment(room.id, text, orgId);
       setComments(cs => [adaptComment(c), ...cs]); setDraft("");
@@ -106,7 +107,7 @@ export default function RoomDetail({ room, onBack, onBook, role, orgs = [], orgI
           <h1 style={{ fontSize:34, fontWeight:800, margin:"10px 0 4px" }}>{room.name}</h1>
           <div className="rd-sub" style={{ fontSize:19, color:"var(--ink-faint)" }}>{room.building} · Holds {room.cap} · {room.type}</div>
         </div>
-        {!room.closed && (
+        {!room.closed && onBook && (
           <button className="rd-book" onClick={()=>onBook(room)} style={{ padding:"12px 22px", borderRadius:10, fontSize:19, fontWeight:700,
             color:"var(--ink)", background:"var(--blue)", height:"fit-content" }}>Book this room</button>
         )}
@@ -114,14 +115,9 @@ export default function RoomDetail({ room, onBack, onBook, role, orgs = [], orgI
 
       <div className="rd-grid" style={{ display:"grid", gridTemplateColumns:"1.3fr 1fr", gap:32, alignItems:"start" }}>
         <div>
-          <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>3D model preview</div>
-          <div className="rd-preview" style={{ height:280, borderRadius:18, marginBottom:28, position:"relative",
-            background:"linear-gradient(135deg, #FFC93C 0%, #FF9B7A 100%)", display:"grid", placeItems:"center" }}>
-            <div style={{ textAlign:"center", color:"var(--ink)" }}>
-              <div style={{ fontSize:42, marginBottom:6 }}>⟳</div>
-              <div style={{ fontSize:18, fontWeight:600 }}>3D model coming soon</div>
-              <div style={{ fontSize:16, opacity:.8 }}>Venue hosts will be able to upload a scanned model here</div>
-            </div>
+          <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>Room photo</div>
+          <div className="rd-preview" style={{ height:280, marginBottom:28 }}>
+            <RoomPhoto room={room} />
           </div>
 
           <div style={{ fontSize:19, fontWeight:700, marginBottom:10 }}>What's in this room</div>
@@ -156,7 +152,7 @@ export default function RoomDetail({ room, onBack, onBook, role, orgs = [], orgI
           {canComment ? (
             <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
               {live && !isAdmin && orgs.length > 1 && (
-                <select value={asOrg} onChange={e=>setAsOrg(e.target.value)} aria-label="Comment as"
+                <select value={asOrg || orgs[0]} onChange={e=>setAsOrg(e.target.value)} aria-label="Comment as"
                   style={{ padding:"12px 10px", fontSize:16, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)" }}>
                   {orgs.map(o => <option key={o}>{o}</option>)}
                 </select>

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Enum, String, Boolean
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Enum, Index, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -12,11 +12,14 @@ from .base import Base  # your declarative Base lives here
 
 
 class UserRole(str, enum.Enum):
-    """The three user types in CampusReserve."""
+    """The user types in CampusReserve."""
 
     CLUB_LEADER = "club_leader"
     ADMIN = "admin"
     VENUE_HOST = "venue_host"
+    # Anyone can make one with just a username and password: no email, no verification.
+    # It can search rooms and see the campus map, but not book (see access_control/roles.py).
+    GENERAL = "general"
 
 
 class User(Base):
@@ -24,7 +27,11 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    email = Column(String(255), unique=True, nullable=False, index=True)
+    # Every account has an email, a username, or both. Club leaders, admins and venue
+    # hosts log in with their email; general accounts log in with their username.
+    email = Column(String(255), unique=True, nullable=True, index=True)
+    # Unique ignoring case ("Wolfie" and "wolfie" are the same username); see __table_args__.
+    username = Column(String(30), nullable=True)
     name = Column(String(255), nullable=False)
     password_hash = Column(String(255), nullable=False)
 
@@ -73,5 +80,10 @@ class User(Base):
         "Request", back_populates="requester", foreign_keys="Request.requester_id"
     )
 
+    __table_args__ = (
+        Index("uq_users_username_lower", func.lower(username), unique=True),
+        CheckConstraint("email IS NOT NULL OR username IS NOT NULL", name="ck_users_email_or_username"),
+    )
+
     def __repr__(self) -> str:
-        return f"<User {self.email} ({self.role.value})>"
+        return f"<User {self.email or self.username} ({self.role.value})>"

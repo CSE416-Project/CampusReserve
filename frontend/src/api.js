@@ -36,7 +36,9 @@ async function call(path, { method = "GET", json, form, withTotal = false } = {}
   try { data = await res.json(); } catch { /* no body */ }
   if (!res.ok) {
     if (res.status === 401 && token && path !== "/auth/token") setToken(null);
-    throw new Error(errorMessage(data, res.status));
+    const err = new Error(errorMessage(data, res.status));
+    err.code = data && data.detail && data.detail.code;   // e.g. "email_not_verified"
+    throw err;
   }
   if (withTotal) {
     const header = res.headers.get("X-Total-Count");
@@ -55,14 +57,34 @@ const qs = params => {
 };
 
 // ---- auth -------------------------------------------------------------
-export async function login(email, password) {
-  const t = await call("/auth/token", { method: "POST", form: { username: email.trim(), password } });
+// `who` is an email, or a general account's username.
+export async function login(who, password) {
+  const t = await call("/auth/token", { method: "POST", form: { username: who.trim(), password } });
   setToken(t.access_token);
   return call("/auth/me");
 }
 export const me = () => call("/auth/me");
+export const changePassword = (current, next) =>
+  call("/auth/change-password", { method: "POST", json: { current_password: current, new_password: next } });
 export const register = (email, name, password) =>
   call("/auth/register", { method: "POST", json: { email: email.trim(), name: name.trim(), password } });
+// General account: username + password, no email. It can log in right away.
+// Usernames: 3-30 letters, numbers, dots, dashes or underscores (the server checks the same).
+export const USERNAME_RE = /^[A-Za-z0-9._-]{3,30}$/;
+export const registerGeneral = (username, password, email = "") =>
+  call("/auth/register-general", { method: "POST",
+    json: { username: username.trim(), password, ...(email.trim() ? { email: email.trim() } : {}) } });
+// A general account's optional email (for password resets): { email, pending_email }.
+// A new address only counts once its owner opens the link we email to it.
+export const getAccountEmail = () => call("/auth/email");
+export const setAccountEmail = email => call("/auth/email", { method: "PUT", json: { email: email.trim() } });
+export const removeAccountEmail = () => call("/auth/email", { method: "DELETE" });
+export const confirmAccountEmail = token => call("/auth/confirm-email", { method: "POST", json: { token } });
+// Forgot password, and confirming a new account's email. These work without being logged in.
+export const forgotPassword = email => call("/auth/forgot-password", { method: "POST", json: { email: email.trim() } });
+export const resetPassword = (token, new_password) => call("/auth/reset-password", { method: "POST", json: { token, new_password } });
+export const verifyEmail = token => call("/auth/verify-email", { method: "POST", json: { token } });
+export const resendVerification = email => call("/auth/resend-verification", { method: "POST", json: { email: email.trim() } });
 export const searchOrgs = q => call("/organizations?search=" + encodeURIComponent(q));
 export const joinOrg = (id, position_title) =>
   call(`/organizations/${id}/join`, { method: "POST", json: { position_title: position_title || null } });
@@ -76,8 +98,14 @@ export const adaptClub = o => ({ id:o.id, name:o.name, category:null, bio:o.desc
 
 // ---- rooms ------------------------------------------------------------
 export const rooms = () => call("/rooms");
-export const roomSchedule = (id, startKey, endKey) =>
-  call(`/rooms/${encodeURIComponent(id)}/schedule?start=${startKey}&end=${endKey}`);
+// related: also the bookings of the room's parts and its whole (a lobby and its tables), each labelled with space_name.
+export const roomSchedule = (id, startKey, endKey, related = false) =>
+  call(`/rooms/${encodeURIComponent(id)}/schedule?start=${startKey}&end=${endKey}${related ? "&with_related=true" : ""}`);
+// The parts a room divides into (a lobby's tables) and the whole it belongs to: { parts, parents, has_diagram }.
+export const roomParts = id => call(`/rooms/${encodeURIComponent(id)}/parts`);
+// Official 25Live bookings for a list of rooms (the admin calendar).
+export const live25Schedule = (startKey, endKey, ids) =>
+  call(`/rooms/live25-schedule?start=${startKey}&end=${endKey}&room_ids=${ids.join(",")}`);
 export const buildings = ({ includeLocation = false } = {}) =>
   call(`/rooms/buildings${includeLocation ? "?include_location=true" : ""}`);
 
@@ -111,7 +139,7 @@ export const leaveWaitlist = id => call(`/requests/${id}/waitlist`, { method: "D
 
 // ---- adapters: server shapes -> the shapes the UI already uses ---------
 export const SLOTS = ["9:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00"];
-export const ROLE_FROM_SERVER = { club_leader: "leader", admin: "admin", venue_host: "venue" };
+export const ROLE_FROM_SERVER = { club_leader: "leader", admin: "admin", venue_host: "venue", general: "general" };
 
 export function adaptRoom(r) {
   return {
@@ -137,7 +165,7 @@ export function adaptRequest(r, roomsById = {}) {
   const status = r.status;
   return { id: r.id, room, org: r.organization_name || "", date: `${DOW[s.getDay()]}, ${MON[s.getMonth()]} ${s.getDate()}`,
     time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason,
-    event: r.event_name, position: r.waitlist_position };
+    event: r.event_name, position: r.waitlist_position, startAt: s, endAt: new Date(r.end_time) };
 }
 
 // Busy intervals per day from schedule items: { "2026-10-21": [[startMin, endMin, "booked"|"requested"], ...] }
@@ -160,7 +188,7 @@ export function busyFromSchedule(items) {
 const hhmm = m => `${p2(Math.floor(m / 60))}:${p2(m % 60)}`;
 // One booking request for a picked day and time range ("HH:MM" start/end).
 export function requestBody(room, orgId, pick, eventName) {
-  return { organization_id: orgId, room_id: String(room.id), event_name: eventName || "Club event",
+  return { organization_id: orgId, room_id: String(room.id), event_name: pick.event || eventName || "Club event",
     start_time: `${pick.key}T${pick.start}`, end_time: `${pick.key}T${pick.end}` };
 }
 export { hhmm };

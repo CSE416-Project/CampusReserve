@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Avatar from '../components/Avatar.jsx';
 import PasswordInput from '../components/PasswordInput.jsx';
+import AccountEmail from '../components/AccountEmail.jsx';
 
 const field = { width:"100%", padding:"11px 13px", fontSize:15, border:"2px solid var(--ink)", borderRadius:10,
   background:"var(--paper)", outline:"none", marginTop:6 };
@@ -8,9 +9,16 @@ const label = { fontSize:14, fontWeight:600, color:"var(--ink-soft)", display:"b
 const card = { background:"var(--card)", border:"2px solid var(--ink)", borderRadius:14, padding:"24px 26px", boxShadow:"var(--shadow)", marginBottom:22 };
 const primary = { padding:"11px 22px", borderRadius:10, fontSize:15, fontWeight:700, color:"var(--ink)", background:"var(--blue)" };
 
-export default function Profile({ role, profile, onSave, onOpenClub, memberships = [], membershipsLoaded = true, onSearchOrgs, onJoin }) {
+export default function Profile({ role, profile, onSave, onOpenClub, memberships = [], membershipsLoaded = true, onSearchOrgs, onJoin, onChangePassword, onForgotPassword }) {
   const [name,setName]=useState(profile.name); const [saved,setSaved]=useState(false);
-  const [cur,setCur]=useState(""); const [next,setNext]=useState(""); const [confirm,setConfirm]=useState(""); const [pwMsg,setPwMsg]=useState(null);
+  const [cur,setCur]=useState(""); const [next,setNext]=useState(""); const [confirm,setConfirm]=useState(""); const [pwMsg,setPwMsg]=useState(null); const [pwBusy,setPwBusy]=useState(false);
+  const [fpMsg,setFpMsg]=useState(null); const [fpBusy,setFpBusy]=useState(false);
+  const emailReset = async () => {
+    setFpBusy(true); setFpMsg(null);
+    try { if (onForgotPassword) await onForgotPassword(profile.email); setFpMsg({ ok:true, text:`✓ We emailed a reset link to ${profile.email}. It opens a page where you choose a new password.` }); }
+    catch (e) { setFpMsg({ ok:false, text:e.message }); }
+    setFpBusy(false);
+  };
 
   // add-a-club form
   const [q,setQ]=useState(""); const [results,setResults]=useState([]); const [chosen,setChosen]=useState(null);
@@ -32,10 +40,17 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
   };
   const verifiedCount = memberships.filter(m=>m.verified).length;
 
-  const updatePassword = () => {
+  const updatePassword = async () => {
     if (!cur) return setPwMsg({ ok:false, text:"Enter your current password." });
     if (next.length < 8) return setPwMsg({ ok:false, text:"New password must be at least 8 characters." });
     if (next !== confirm) return setPwMsg({ ok:false, text:"The new passwords don't match." });
+    if (next === cur) return setPwMsg({ ok:false, text:"Choose a new password that is different from your current one." });
+    // Connected to the server: it checks the current password and saves the new one.
+    // Without a server (demo mode) there is nothing to save, so only the checks above run.
+    setPwBusy(true); setPwMsg(null);
+    try { if (onChangePassword) await onChangePassword(cur, next); }
+    catch (e) { setPwBusy(false); return setPwMsg({ ok:false, text:e.message || "Couldn't change your password." }); }
+    setPwBusy(false);
     setPwMsg({ ok:true, text:"✓ Password updated." }); setCur(""); setNext(""); setConfirm("");
   };
 
@@ -50,6 +65,14 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
             <div style={{ fontSize:20, fontWeight:800 }}>{name}</div>
           </div>
         </div>
+        {role==="general" ? (<>
+          <label style={label}>Username
+            <input value={profile.username || profile.name} readOnly style={{ ...field, color:"var(--ink-faint)" }} />
+          </label>
+          <p style={{ marginTop:14, fontSize:14.5, color:"var(--ink-soft)", lineHeight:1.5 }}>
+            This is a general account: you can search rooms and see the campus map. To book rooms for a club,
+            log out and create an account with your SBU email.</p>
+        </>) : (<>
         <label style={label}>Full name
           <input value={name} onChange={e=>{ setName(e.target.value); setSaved(false); }} style={field} />
         </label>
@@ -60,6 +83,7 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
           <button onClick={()=>{ onSave({ name }); setSaved(true); }} style={primary}>Save changes</button>
           {saved && <span style={{ fontSize:14.5, color:"var(--green)", fontWeight:600 }}>✓ Saved</span>}
         </div>
+        </>)}
       </div>
 
       {role==="leader" && (
@@ -120,6 +144,9 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
         </div>
       )}
 
+      {role==="general" && <AccountEmail email={profile.email} onEmailChange={email=>onSave({ email })}
+        styles={{ card, label, field, primary }} />}
+
       <div className="card-pad" style={card}>
         <div style={{ fontSize:18, fontWeight:700 }}>Change password</div>
         <label style={label}>Current password
@@ -132,9 +159,20 @@ export default function Profile({ role, profile, onSave, onOpenClub, memberships
           <PasswordInput value={confirm} onChange={e=>{ setConfirm(e.target.value); setPwMsg(null); }} style={field} />
         </label>
         <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:20, flexWrap:"wrap" }}>
-          <button onClick={updatePassword} style={primary}>Update password</button>
-          {pwMsg && <span style={{ fontSize:14.5, fontWeight:600, color: pwMsg.ok ? "var(--green)" : "var(--red)" }}>{pwMsg.text}</span>}
+          <button onClick={updatePassword} disabled={pwBusy} style={primary}>{pwBusy ? "Updating…" : "Update password"}</button>
+          {pwMsg && <span role="status" style={{ fontSize:14.5, fontWeight:600, color: pwMsg.ok ? "var(--green)" : "var(--red)" }}>{pwMsg.text}</span>}
         </div>
+        {role==="general" && !profile.email ? (
+          <div style={{ marginTop:18, paddingTop:14, borderTop:"1px solid var(--line)", fontSize:14.5, color:"var(--ink-soft)" }}>
+            Without a confirmed email we can't send you a reset link. Add one above, or keep your password somewhere safe.
+          </div>
+        ) : (
+        <div style={{ marginTop:18, paddingTop:14, borderTop:"1px solid var(--line)", fontSize:14.5, color:"var(--ink-soft)" }}>
+          Forgot your current password?{" "}
+          <button onClick={emailReset} disabled={fpBusy} style={{ color:"var(--link)", fontWeight:700, fontSize:14.5, textDecoration:"underline" }}>{fpBusy ? "Sending…" : "Email me a reset link"}</button>
+          {fpMsg && <div role="status" style={{ marginTop:8, fontWeight:600, color: fpMsg.ok ? "var(--green)" : "var(--red)" }}>{fpMsg.text}</div>}
+        </div>
+        )}
       </div>
     </main>
   );

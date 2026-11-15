@@ -91,6 +91,8 @@ html.has-tabbar .a11y-talkbar { left: 50% !important; transform: translateX(-50%
 
 /* ===== Phones and tablets ===== */
 @media (max-width: 1023px) {
+  /* Messages (tablets and phones): leave room for the top bar and the bottom tab bar. */
+  .msg-pane, .msg-list { height: calc(100dvh - var(--topbar-h) - var(--tabbar-h) - var(--safe-b) - 130px); min-height: 360px; }
   /* 16px text in form fields stops iPhones from zooming in when a field is tapped. */
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: 16px !important; }
   /* Finger-sized targets. */
@@ -163,7 +165,7 @@ html.has-tabbar .a11y-talkbar { left: 50% !important; transform: translateX(-50%
 
   /* Messages: the list, or one conversation full screen. */
   .msg-layout { display: block !important; }
-  .msg-list { width: 100% !important; }
+  .msg-list { width: 100% !important; height: auto !important; min-height: 0 !important; max-height: calc(100dvh - var(--topbar-h) - var(--tabbar-h) - var(--safe-b) - 110px); }
   .msg-pane {
     min-width: 0 !important;
     height: calc(100dvh - var(--topbar-h) - var(--tabbar-h) - var(--safe-b) - 32px); min-height: 360px !important;

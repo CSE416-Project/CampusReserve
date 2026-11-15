@@ -157,22 +157,36 @@ def test_verified_members_see_the_member_list(client, auth, admin, leader, org, 
     assert [m["user_id"] for m in body["members"]] == [str(leader.id)]
 
 
-def test_non_members_dont_see_the_member_list(client, auth, admin, leader, make_user, org,
-                                              member):
-    member(make_user(), org, verified=True, verified_by=admin)
+def test_everyone_sees_the_verified_e_board(client, auth, admin, leader, make_user, org, member):
+    boss = make_user(name="Pat President")
+    member(boss, org, verified=True, verified_by=admin, position_title="President")
     body = client.get(f"/organizations/{org.id}", headers=auth(leader)).json()
-    assert body["members"] is None and body["verified_member_count"] == 1
+    assert [(m["user_name"], m["position_title"]) for m in body["members"]] == [("Pat President", "President")]
+    assert body["verified_member_count"] == 1
 
 
-def test_unverified_members_dont_see_the_member_list(client, auth, leader, org, member):
+def test_others_never_see_unverified_members(client, auth, admin, leader, make_user, org, member):
+    waiting = make_user(name="Wendy Waiting")
+    member(waiting, org)  # not verified
+    assert client.get(f"/organizations/{org.id}", headers=auth(leader)).json()["members"] == []
+    admins_view = client.get(f"/organizations/{org.id}", headers=auth(admin)).json()["members"]
+    assert [m["user_name"] for m in admins_view] == ["Wendy Waiting"]
+
+
+def test_unverified_people_see_the_verified_list_only(client, auth, admin, leader, make_user, org, member):
     member(leader, org)
-    assert client.get(f"/organizations/{org.id}", headers=auth(leader)).json()["members"] is None
+    boss = make_user()
+    member(boss, org, verified=True, verified_by=admin)
+    body = client.get(f"/organizations/{org.id}", headers=auth(leader)).json()
+    assert [m["user_id"] for m in body["members"]] == [str(boss.id)]
 
 
-def test_members_whose_term_ended_dont_see_the_member_list(client, auth, admin, leader, org,
-                                                           member):
-    expired(member, leader, org, admin)
-    assert client.get(f"/organizations/{org.id}", headers=auth(leader)).json()["members"] is None
+def test_members_see_everyone_including_unverified(client, auth, admin, leader, make_user, org, member):
+    member(leader, org, verified=True, verified_by=admin)
+    waiting = make_user()
+    member(waiting, org)
+    ids = {m["user_id"] for m in client.get(f"/organizations/{org.id}", headers=auth(leader)).json()["members"]}
+    assert ids == {str(leader.id), str(waiting.id)}
 
 
 # =============================================================================
@@ -253,9 +267,10 @@ def test_join_doesnt_notify_the_requester(client, auth, admin, leader, org):
     assert client.get("/notifications", headers=auth(leader)).json() == []
 
 
-def test_joining_doesnt_let_you_see_the_member_list(client, auth, leader, org):
+def test_joining_doesnt_show_you_to_others_until_verified(client, auth, admin, leader, make_user, org):
     client.post(f"/organizations/{org.id}/join", headers=auth(leader))
-    assert client.get(f"/organizations/{org.id}", headers=auth(leader)).json()["members"] is None
+    other = make_user()
+    assert client.get(f"/organizations/{org.id}", headers=auth(other)).json()["members"] == []
 
 
 def test_join_then_admin_verifies(client, auth, admin, leader, org):

@@ -7,6 +7,8 @@ export const NAV = {
   leader: [["requests","My requests"],["find","Find a space"],["forum","Forum"],["messages","Messages"],["clubs","Clubs"], ["map", "Campus map"]],
   admin: [["approvals","Approvals"],["verifications","Verifications"],["export","25Live"],["rooms","Rooms"],["analytics","Analytics"],["forum","Forum"],["messages","Messages"],["clubs","Clubs"], ["map", "Campus map"]],
   venue: [["rooms","Rooms"],["messages","Messages"],["clubs","Clubs"], ["map", "Campus map"]],
+  // General accounts (username only, no verification) can search rooms but not book.
+  general: [["find","Find a space"], ["map", "Campus map"]],
 };
 // Shorter names for the phone tab bar, where each tab is about 75px wide.
 const SHORT = { requests:"Requests", find:"Find", verifications:"Verify", map:"Map", export:"25Live" };

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from authentication import get_current_user
 from database import get_db
 from models.organization_and_venue import Organization, OrganizationMember
-from models.user import User
+from models.user import User, UserRole
 from routers.admin import MembershipOut, membership_out, notify_admins_of_join
 from services.pagination import Page, paged
 from services.permissions import as_uuid, has_scope, verified_org_ids
@@ -25,7 +25,8 @@ class OrganizationOut(BaseModel):
     name: str
     description: str | None
     verified_member_count: int
-    members: list[MembershipOut] | None = None   # only for admins and the org's members
+    members: list[MembershipOut] | None = None   # on the detail page only. Everyone sees the verified
+                                                 # e-board; admins and the org's own members see all
 
 
 class JoinBody(BaseModel):
@@ -61,11 +62,12 @@ def get_organization(
     org = db.get(Organization, as_uuid(organization_id, "organization"))
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found.")
-    see_members = has_scope(user, "manage:users") or org.id in verified_org_ids(db, user)
+    see_everyone = has_scope(user, "manage:users") or org.id in verified_org_ids(db, user)
+    shown = [m for m in org.memberships if see_everyone or m.verified_at]
     return OrganizationOut(
         id=str(org.id), name=org.name, description=org.description,
         verified_member_count=sum(1 for m in org.memberships if m.verified_at),
-        members=[membership_out(m) for m in org.memberships] if see_members else None)
+        members=[membership_out(m) for m in shown])
 
 
 @router.post("/{organization_id}/join", response_model=MembershipOut,
@@ -78,6 +80,10 @@ def request_to_join(
 ):
     """Ask to be verified as an E-board member. An admin verifies you before
     you can book rooms for the organization."""
+    if user.role == UserRole.GENERAL:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="General accounts can't join clubs. Create an account with your "
+                                   "SBU email to book rooms for a club.")
     org = db.get(Organization, as_uuid(organization_id, "organization"))
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found.")
