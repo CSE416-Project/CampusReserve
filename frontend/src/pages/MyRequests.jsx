@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { SB_ENGAGED_URL } from '../data/mock.js';
 import Pill from '../components/Pill.jsx';
+import RequestDetails from '../components/RequestDetails.jsx';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import WeekCalendar, { CalendarLegend, startOfWeek } from '../components/WeekCalendar.jsx';
 
@@ -93,6 +94,7 @@ export default function MyRequests({ requests, showOrg = false, clubs = [], onCa
                 </div>
                 <Pill status={req.status} />
               </div>
+              <RequestDetails req={req} />
               {req.status==="waitlisted" && (
                 <div style={{ marginTop:12, background:"var(--blue-wash)", borderRadius:10, padding:"11px 14px", fontSize:14, color:"var(--ink-soft)", lineHeight:1.5 }}>
                   <b>Your spot: #{req.position || "–"}</b> in line for this time. {req.position > 1 ? `${req.position - 1} club${req.position === 2 ? "" : "s"} ahead of you.` : "You're next in line."}

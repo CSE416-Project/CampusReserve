@@ -1,6 +1,7 @@
 import OrgLink from '../components/OrgLink.jsx';
 import { useEffect, useState } from 'react';
 import Pill from '../components/Pill.jsx';
+import RequestDetails from '../components/RequestDetails.jsx';
 
 export default function Approvals({ requests, onDecide, onOpenClub, clubs = [] }) {
   const [tab,setTab]=useState("pending");
@@ -97,6 +98,7 @@ export default function Approvals({ requests, onDecide, onOpenClub, clubs = [] }
                 </div>
                 <Pill status={status} />
               </div>
+              <RequestDetails req={req} defaultOpen={tab==="pending"} />
               {tab==="pending" && status==="pending" && (denying===req.id ? (
                 <div style={{ marginTop:12 }}>
                   <textarea value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason for denial (shared with the requester)"

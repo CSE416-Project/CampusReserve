@@ -324,6 +324,22 @@ def redownload_batch(
                       csv=live25_csv.build_csv(good), skipped=[_export_item(r) for r in rows if r.problems])
 
 
+@router.get("/sync/batches/{batch_id}/details", response_model=ExportFile)
+def batch_details_sheet(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    user: User = Security(get_current_user, scopes=["sync:external-bookings"]),
+):
+    """A companion sheet for the admin (not for upload to 25Live): the export's requests with
+    every event question as its own Yes/No column. Bookings cancelled since are left out."""
+    reqs = [r for r in _batch_or_404(db, batch_id) if r.status == RequestStatus.APPROVED]
+    if not reqs:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="Every booking in this export has since been cancelled.")
+    return ExportFile(batch_id=batch_id, filename=_csv_filename().replace("25live-import", "25live-details"),
+                      count=len(reqs), csv=live25_csv.build_details_csv(reqs), skipped=[])
+
+
 @router.post("/sync/batches/{batch_id}/undo")
 def undo_batch(
     batch_id: str,

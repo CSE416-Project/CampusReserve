@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { slotState } from '../data/mock.js';
-import { LIVE, roomSchedule, roomParts, busyFromSchedule, dayKeyOf } from '../api.js';
+import { LIVE, roomSchedule, roomParts, busyFromSchedule, dayKeyOf, rememberedAdvisor, rememberAdvisor } from '../api.js';
+import { QUESTION_LABELS, emptyDetails, detailsBlocker, detailsPayload } from '../data/eventDetails.js';
+import EventDetailsForm from '../components/EventDetailsForm.jsx';
 import Pill from '../components/Pill.jsx';
 import WaitlistOffer from '../components/WaitlistOffer.jsx';
 import BookingCalendar from '../components/BookingCalendar.jsx';
@@ -27,7 +29,7 @@ const API = import.meta.env.VITE_API_URL;
 // "Student Union - 203-01 (2nd Floor Ballroom Lobby All Spaces)" -> "2nd Floor Ballroom Lobby"
 const groupLabel = g => { const m = /\(([^)]*)\)/.exec(g || ""); return (m ? m[1] : g || "").replace(/\s*All Spaces$/i, "").trim(); };
 
-export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWaitlist, waitlistLine = [], orgs = [] }) {
+export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWaitlist, onSearchOrgs, waitlistLine = [], orgs = [] }) {
   // Some rooms are made of smaller bookable spaces (a lobby and its tables). The user books one part, and each day can use a different one.
   const [rel, setRel] = useState({ parts: [], parents: [], has_diagram: false });
   const [partId, setPartId] = useState(null);
@@ -70,6 +72,9 @@ export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWai
   const [wlMsg, setWlMsg] = useState("");
   const [eventName, setEventName] = useState("");
   const [names, setNames] = useState({});            // an optional event name for one day; blank = use the main name
+  const [det, setDet] = useState(emptyDetails);       // attendance, description, event questions, co-hosts, advisor, policy (EventDetailsForm)
+  // Pre-fill the club's program advisor from last time, until the user edits the field.
+  useEffect(() => { if (!det.advisorTouched) setDet(d => ({ ...d, advisor: rememberedAdvisor(orgs.length > 1 ? org : orgs[0]) })); }, [org, orgs.length]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState("");
   const [live, setLive] = useState({});                // live busy intervals: { space id: { day key: [...] } }
   const [schedErr, setSchedErr] = useState("");   // set when the room's schedule can't be loaded
@@ -152,7 +157,8 @@ export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWai
   const total = sorted.reduce((n, k) => n + idsOf(k).length, 0);   // one request for each day and space
   const needOrg = orgs.length > 1 && !org;
   const bookingOrg = orgs.length > 1 ? org : orgs[0];
-  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg && sorted.every(k => nameOf(k));   // every day needs a name: its own, or the main one
+  const blocker = detailsBlocker(det, room.cap);   // what's still missing from the event details ("" = nothing)
+  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg && sorted.every(k => nameOf(k)) && !blocker;   // every day needs a name: its own, or the main one
 
   // The top time box sets the default for new days, and moves any day that is still on that default.
   const changeDefault = (ns, ne) => {
@@ -198,7 +204,8 @@ export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWai
     setBusy(true); setError("");
     try {
       const picks = sorted.flatMap(k => idsOf(k).map(id => mkPick(k, id)));   // one request for each day and space
-      const failed = (await onSubmit(room, picks, bookingOrg, eventName.trim())) || [];
+      rememberAdvisor(bookingOrg, det.advisor.trim());
+      const failed = (await onSubmit(room, picks, bookingOrg, eventName.trim(), detailsPayload(det, bookingOrg))) || [];
       if (failed.length === 0) { setDone(true); return; }
       const keep = {}; for (const f of failed) (keep[f.pick.key] ||= []).push(f.pick.space);   // only retry the ones that failed
       setDates([...new Set(failed.map(f => f.pick.key))]); setSpaces(sp => ({ ...sp, ...keep })); setConfirming(false);
@@ -211,7 +218,8 @@ export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWai
     setBusy(true); setError(""); setWlMsg("");
     try {
       const picks = conflicts.flatMap(k => conflictIds(k).map(id => mkPick(k, id)));   // only the spaces that are taken
-      const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName.trim())) || [];
+      rememberAdvisor(bookingOrg, det.advisor.trim());
+      const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName.trim(), detailsPayload(det, bookingOrg))) || [];
       const ok = picks.length - failed.length;
       if (ok) setWlMsg(`✓ You joined the waitlist for ${ok} time slot${ok === 1 ? "" : "s"}. See your spot under My requests.`);
       const bad = new Set(failed.map(f => `${f.pick.key}|${f.pick.space}`)), left = {};
@@ -333,6 +341,13 @@ export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWai
                 <div style={{ fontSize:14, color:"var(--ink-faint)", marginBottom:8 }}>{room.building}</div>
                 {!sorted.some(k => nameOf(k) !== eventName.trim()) && <div style={{ fontSize:15, marginBottom:6 }}>Event: <b>{eventName.trim()}</b></div>}
                 {bookingOrg && <div style={{ fontSize:15, marginBottom:6 }}>Booking for: <b>{bookingOrg}</b></div>}
+                {(() => { const p = detailsPayload(det, bookingOrg), inc = Object.keys(QUESTION_LABELS).filter(k => det.questions[k]).map(k => QUESTION_LABELS[k]); return (<>
+                  <div style={{ fontSize:15, marginBottom:6 }}>Expected attendance: <b>{p.headcount}</b></div>
+                  <div style={{ fontSize:15, marginBottom:6, whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>About: {p.description}</div>
+                  <div style={{ fontSize:15, marginBottom:6 }}>Includes: <b>{inc.length ? inc.join(", ") : "nothing special"}</b></div>
+                  {p.coHostNames.length > 0 && <div style={{ fontSize:15, marginBottom:6 }}>Co-hosting with: <b>{p.coHostNames.join(", ")}</b></div>}
+                  {p.advisor && <div style={{ fontSize:15, marginBottom:6 }}>Program advisor: <b>{p.advisor}</b></div>}
+                </>); })()}
                 {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}><b>{labelOf(k)}</b>{hasParts && <> · {idsOf(k).map(shortName).join(" + ")}</>} · {fmt12(tOf(k).start)} – {fmt12(tOf(k).end)}{sorted.some(j => nameOf(j) !== eventName.trim()) && <> · {nameOf(k)}</>}</div>)}
               </div>
             </div>
@@ -494,9 +509,11 @@ export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWai
               </div>
             )}
 
+            <EventDetailsForm value={det} onChange={setDet} org={bookingOrg} cap={room.cap} search={onSearchOrgs} />
+
             {wlMsg && <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
             {conflicts.length > 0 && !needOrg && onJoinWaitlist && (
-              <WaitlistOffer named={conflicts.every(k => nameOf(k))} roomName={hasParts ? base.name : room.name} days={conflicts} start={start} end={end} times={times} line={waitlistLine} busy={busy} onJoin={joinWl} />
+              <WaitlistOffer named={conflicts.every(k => nameOf(k))} blocker={blocker} roomName={hasParts ? base.name : room.name} days={conflicts} start={start} end={end} times={times} line={waitlistLine} busy={busy} onJoin={joinWl} />
             )}
           </div>
         </div>
@@ -521,6 +538,7 @@ export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWai
                 : sorted.length === 0 ? "Pick at least one day"
                 : conflicts.length ? "Time conflict: join the waitlist or change the time"
                 : !sorted.every(k => nameOf(k)) ? "Add an event name to continue"
+                : blocker ? blocker
                 : `Review ${total} request${total === 1 ? "" : "s"}`}
             </button>
           )}

@@ -18,6 +18,12 @@ Which bookings are already exported is tracked on the request itself
 Settings (environment variables), because these must match 25Live exactly:
     LIVE25_EVENT_TYPE            default "Meeting"
     LIVE25_PRIMARY_ORGANIZATION  default: the requesting club's name
+    LIVE25_QUESTION_ATTRIBUTES   optional JSON mapping our event questions to the
+                                 25Live custom-attribute names that hold them, e.g.
+                                 {"food": "Serving Food", "minors": "Minors Present"}.
+                                 Off by default: the template can't have extra columns, and
+                                 a name 25Live doesn't know may be dropped. Without it, the
+                                 answers go in INTERNAL_NOTES (and the details sheet).
 """
 
 from __future__ import annotations
@@ -25,6 +31,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import json
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -33,6 +40,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, selectinload
 
 from models.room import Request, RequestStatus, SyncStatus
+from services.request_details import QUESTION_NAMES, EVENT_QUESTIONS, yes_names
 from services.room_merge import campus_now
 
 # Template columns, in order. Don't rename or reorder: 25Live rejects the file.
@@ -59,6 +67,25 @@ def event_type() -> str:
 
 def primary_organization_override() -> str | None:
     return os.getenv("LIVE25_PRIMARY_ORGANIZATION") or None
+
+
+def question_attributes() -> dict[str, str]:
+    """{our question key: 25Live attribute name}, from LIVE25_QUESTION_ATTRIBUTES (empty if unset/invalid)."""
+    raw = os.getenv("LIVE25_QUESTION_ATTRIBUTES", "").strip()
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return {k: str(v) for k, v in data.items() if k in EVENT_QUESTIONS and v} if isinstance(data, dict) else {}
+
+
+def _custom_attributes(req: Request) -> str:
+    """'Name:Yes|Name:No' for the mapped questions (25Live's name:value format); blank if never asked."""
+    mapping, answers = question_attributes(), req.event_questions or {}
+    if not mapping or not answers:
+        return ""
+    return "|".join(f"{_clean(name).replace(':', ' ')}:{'Yes' if answers.get(k) else 'No'}"
+                    for k, name in mapping.items())
 
 
 def alien_uid(req: Request) -> str:
@@ -112,13 +139,32 @@ def make_row(req: Request) -> ExportRow:
     who = ""
     if req.requester is not None:
         who = f" Requested by: {req.requester.name} <{req.requester.email}>."
-    notes = _clean(f"CampusReserve request {req.id}. Organization: {org_name}.{who}")
+    co_hosts = [o.name for o in req.co_hosts]
+    extra = ""
+    if co_hosts:
+        extra += f" Co-hosting clubs: {', '.join(co_hosts)}."
+    if req.program_advisor:
+        extra += f" Program advisor: {req.program_advisor}."
+    answers = req.event_questions or {}
+    yes = yes_names(answers)
+    if answers:  # {} = never asked (a request made before these questions existed)
+        extra += f" Event questions, Yes: {', '.join(yes)}." if yes else " Event questions: all No."
+    notes = _clean(f"CampusReserve request {req.id}. Organization: {org_name}.{who}{extra}")
+
+    # The template has no column for these, so tell the admin what to add in 25Live.
+    if co_hosts or req.program_advisor:
+        warnings.append("Co-hosting clubs and the program advisor have no column in 25Live's template: "
+                        "they're in INTERNAL_NOTES. Add them in 25Live after uploading.")
+    if yes and not question_attributes():
+        warnings.append(f"Answered Yes to {', '.join(yes)}: listed in INTERNAL_NOTES. "
+                        "Answer these event questions in 25Live after uploading.")
 
     date = start.date().isoformat()
     values = {
         "EVENT_ID": str(req.id),
         "EVENT_NAME": _clean(req.event_name, EVENT_NAME_LIMIT),
         "EVENT_TITLE": _clean(req.event_name, EVENT_TITLE_LIMIT),
+        "DESCRIPTION": _clean(req.description),
         "INTERNAL_NOTES": notes,
         "EVENT_TYPE": event_type(),
         "PRIMARY_ORGANIZATION": _clean(primary_organization_override() or org_name),
@@ -132,6 +178,7 @@ def make_row(req: Request) -> ExportRow:
         "POST_EVENT_TIME": _minutes(end, req.cleanup_end) if req.cleanup_end else "",
         "ADHOC_DATES": date if USE_ADHOC_DATE else "",
         "LOCATIONS": _clean(location),
+        "CUSTOM_ATTRIBUTES": _custom_attributes(req),
     }
     return ExportRow(req, [values.get(h, "") for h in HEADERS], problems, warnings)
 
@@ -143,6 +190,37 @@ def build_csv(rows: list[ExportRow]) -> str:
     for row in rows:
         writer.writerow(row.values)
     return out.getvalue()  # sent as plain UTF-8: no byte-order mark
+
+
+# ------------------------------------------------------------------ details sheet
+
+DETAIL_HEADERS = (["REQUEST_ID", "EVENT_NAME", "ORGANIZATION", "CO_HOSTS", "ROOM", "DATE", "START_TIME",
+                   "END_TIME", "SETUP_MINUTES", "CLEANUP_MINUTES", "EXPECTED_ATTENDANCE", "DESCRIPTION",
+                   "REQUESTER", "REQUESTER_EMAIL", "PROGRAM_ADVISOR"]
+                  + [name.upper().replace("/", "_").replace(" ", "_") for name in QUESTION_NAMES.values()])
+
+
+def build_details_csv(reqs: list[Request]) -> str:
+    """A companion sheet for admins (NOT for upload to 25Live): one row per request, one
+    Yes/No column per event question, so it can be sorted and filtered (e.g. everyone serving
+    food). A question never asked is left blank. Keeps the real import file within 25Live's template."""
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\r\n")
+    writer.writerow(DETAIL_HEADERS)
+    for r in reqs:
+        answers = r.event_questions or {}
+        writer.writerow([
+            str(r.id), r.event_name, r.organization.name if r.organization else "",
+            "; ".join(o.name for o in r.co_hosts), r.room.name if r.room else "",
+            r.start_time.date().isoformat(), r.start_time.strftime("%H:%M"), r.end_time.strftime("%H:%M"),
+            _minutes(r.setup_start, r.start_time) or "0",
+            (_minutes(r.end_time, r.cleanup_end) if r.cleanup_end else "") or "0",
+            r.expected_attendance or "", r.description or "",
+            r.requester.name if r.requester else "", r.requester.email if r.requester else "",
+            r.program_advisor or "",
+            *[("Yes" if answers.get(k) else "No") if answers else "" for k in QUESTION_NAMES],
+        ])
+    return out.getvalue()
 
 
 # ------------------------------------------------------------------ database

@@ -24,6 +24,7 @@ from services.live25_sync import SyncResult, booking_details
 from services.notify import notify
 from services.permissions import admins, as_uuid, org_leaders
 from services.request_checks import RoomRules, Window
+from services.request_details import EventDetails
 
 BLOCK_START = func.coalesce(Request.setup_start, Request.start_time)
 BLOCK_END = func.coalesce(Request.cleanup_end, Request.end_time)
@@ -115,13 +116,19 @@ def _waitlist(db: Session, req: Request) -> None:
 
 def create_request(db: Session, *, room: Room, organization_id, requester: User | None,
                    event_name: str, window: Window, attendance: int | None,
-                   waitlisted: bool = False) -> Request:
+                   waitlisted: bool = False, details: EventDetails | None = None) -> Request:
+    details = details or EventDetails()  # callers that don't ask for details (original API)
     req = Request(
         room_id=room.id,
         organization_id=organization_id,
         requester_id=requester.id if requester else None,
         event_name=event_name,
         expected_attendance=attendance,
+        event_type=details.event_type,
+        description=details.description,
+        event_questions=dict(details.event_questions),
+        program_advisor=details.program_advisor,
+        policy_agreed_at=dt.datetime.utcnow() if details.policy_agreed else None,
         start_time=window.start,
         end_time=window.end,
         setup_start=window.blocked_start if window.setup_minutes else None,
@@ -129,6 +136,7 @@ def create_request(db: Session, *, room: Room, organization_id, requester: User 
         status=RequestStatus.PENDING,
         sync_status=SyncStatus.NOT_SYNCED,
     )
+    req.co_hosts = list(details.co_hosts)
     db.add(req)
     db.flush()  # assigns req.id
     if waitlisted:
@@ -150,13 +158,17 @@ def create_request(db: Session, *, room: Room, organization_id, requester: User 
 
 
 def update_request(db: Session, req: Request, *, event_name: str | None, window: Window,
-                   attendance: int | None) -> Request:
+                   attendance: int | None, changes: dict | None = None) -> Request:
+    """`changes` holds only the event details the caller wants to change, keyed by
+    column name: event_type, description, event_questions, program_advisor, co_hosts."""
     if req.status not in (RequestStatus.PENDING, RequestStatus.WAITLISTED):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Only pending or waitlisted requests can be edited.")
     old = window_of(req)
     if event_name is not None:
         req.event_name = event_name
+    for key, value in (changes or {}).items():
+        setattr(req, key, value)
     req.expected_attendance = attendance
     req.start_time, req.end_time = window.start, window.end
     req.setup_start = window.blocked_start if window.setup_minutes else None
@@ -302,6 +314,11 @@ def sync_details(req: Request) -> dict:
         start=req.start_time, end=req.end_time,
         setup_start=req.setup_start, cleanup_end=req.cleanup_end,
         attendance=req.expected_attendance, request_id=str(req.id),
+        event_type=req.event_type, description=req.description,
+        event_questions=req.event_questions, co_hosts=req.co_hosts,
+        program_advisor=req.program_advisor,
+        requester_name=req.requester.name if req.requester else None,
+        requester_email=req.requester.email if req.requester else None,
     )
 
 

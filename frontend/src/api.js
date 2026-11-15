@@ -1,6 +1,7 @@
 // Thin client for the CampusReserve FastAPI server.
 // Live mode is ON only when VITE_API_URL is set (see .env.example); otherwise the app runs on mock data.
 import * as demo from './data/mockExport.js'; // demo data if api not connected
+import { DEFAULT_EVENT_TYPE, QUESTION_LABELS } from './data/eventDetails.js';
 const BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 export const LIVE = !!BASE;
 
@@ -165,7 +166,15 @@ export function adaptRequest(r, roomsById = {}) {
   const status = r.status;
   return { id: r.id, room, org: r.organization_name || "", date: `${DOW[s.getDay()]}, ${MON[s.getMonth()]} ${s.getDate()}`,
     time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason,
-    event: r.event_name, position: r.waitlist_position, startAt: s, endAt: new Date(r.end_time) };
+    event: r.event_name, position: r.waitlist_position, startAt: s, endAt: new Date(r.end_time),
+    // event details (same shape as displayDetails() in data/eventDetails.js)
+    headcount: r.expected_attendance || null,
+    description: r.description || "",
+    eventType: r.event_type || DEFAULT_EVENT_TYPE,
+    includes: Object.keys(QUESTION_LABELS).filter(k => r.event_questions?.[k]).map(k => QUESTION_LABELS[k]),
+    answered: !!r.event_questions && Object.keys(r.event_questions).length > 0,   // false for requests made before these questions existed
+    coHosts: (r.co_hosts || []).map(c => c.name),
+    advisor: r.program_advisor || "" };
 }
 
 // Busy intervals per day from schedule items: { "2026-10-21": [[startMin, endMin, "booked"|"requested"], ...] }
@@ -187,11 +196,30 @@ export function busyFromSchedule(items) {
 
 const hhmm = m => `${p2(Math.floor(m / 60))}:${p2(m % 60)}`;
 // One booking request for a picked day and time range ("HH:MM" start/end).
-export function requestBody(room, orgId, pick, eventName) {
+// `details` = what the booking form collected beyond the basics (see detailsPayload in data/eventDetails.js):
+//   { headcount, description, questions:{key:bool}, coHostIds:[...], advisor, policyAgreed }
+export function requestBody(room, orgId, pick, eventName, details = {}) {
   return { organization_id: orgId, room_id: String(room.id), event_name: pick.event || eventName || "Club event",
-    start_time: `${pick.key}T${pick.start}`, end_time: `${pick.key}T${pick.end}` };
+    start_time: `${pick.key}T${pick.start}`, end_time: `${pick.key}T${pick.end}`,
+    expected_attendance: details.headcount || null,
+    event_type: details.eventType || DEFAULT_EVENT_TYPE,
+    description: details.description || null,
+    event_questions: details.questions || {},
+    co_host_organization_ids: details.coHostIds || [],
+    program_advisor: details.advisor || null,
+    policy_agreed: !!details.policyAgreed };
 }
 export { hhmm };
+
+// A club's program advisor rarely changes: remember the last one typed per club in this browser and pre-fill it.
+export function rememberedAdvisor(org) {
+  if (!org) return "";
+  try { return localStorage.getItem(`cr_advisor:${org}`) || ""; } catch { return ""; }
+}
+export function rememberAdvisor(org, name) {
+  if (!org) return;
+  try { name ? localStorage.setItem(`cr_advisor:${org}`, name) : localStorage.removeItem(`cr_advisor:${org}`); } catch { /* storage unavailable */ }
+}
 
 // ---- verification ------------------------------------------------------
 // Admin: every unverified membership request, one row each.
