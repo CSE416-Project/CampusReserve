@@ -239,7 +239,8 @@ def test_cancelled_before_download_never_needs_cancelling_in_25live(client, auth
 def test_event_details_go_into_the_25live_columns_and_notes(make_request, db, org):
     from models.organization_and_venue import Organization
     friend = Organization(name="Dance Collective", description="x")
-    db.add(friend); db.flush()
+    db.add(friend) 
+    db.flush()
     req = make_request(days=20, status=RequestStatus.APPROVED, description="Open rehearsal.\nPizza after.",
                        program_advisor="Dr. Smith", event_questions={"food": True, "dj": True, "minors": False})
     req.co_hosts = [friend]
