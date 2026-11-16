@@ -16,7 +16,7 @@ from .organization_and_venue import (
     venue_hosts,
 )
 
-from .room import Room, RoomClosure, Request, RequestStatus, SyncStatus
+from .room import Room, RoomClosure, Request, RequestStatus, SyncStatus, request_co_hosts
 from .room_comment import RoomComment
 from .auth_token import AuthToken
 
@@ -44,6 +44,7 @@ __all__ = [
     "Request",
     "RequestStatus",
     "SyncStatus",
+    "request_co_hosts",
     "RoomComment",
     "Conversation",
     "ConversationParticipant",

@@ -42,7 +42,7 @@ def test_row_follows_the_25live_template(make_room, make_request, db):
     assert list(row) == live25_csv.HEADERS
     assert row["EVENT_ID"] == str(req.id)
     assert row["EVENT_NAME"] == "Robotics / Demo Night"      # '|' would split a multi-value column
-    assert row["EVENT_TYPE"] == "Meeting"
+    assert row["EVENT_TYPE"] == "Student - Program"        # the booking form's default
     assert row["PRIMARY_ORGANIZATION"] == req.organization.name
     assert row["ADHOC_DATES"] == "2030-03-04"
     assert row["START_TIME"] == "18:00:00" and row["END_TIME"] == "20:00:00"
@@ -66,12 +66,17 @@ def test_file_has_no_byte_order_mark_and_is_utf8(make_request):
     assert "Caf\u00e9 night".encode("utf-8") in text.encode("utf-8")
 
 
-def test_event_settings_come_from_the_environment(make_request, monkeypatch):
-    monkeypatch.setenv("LIVE25_EVENT_TYPE", "Student Event")
+def test_primary_organization_can_come_from_the_environment(make_request, monkeypatch):
     monkeypatch.setenv("LIVE25_PRIMARY_ORGANIZATION", "Student Activities")
     row = parse(live25_csv.build_csv([live25_csv.make_row(make_request(days=7, status=RequestStatus.APPROVED))]))[0]
-    assert row["EVENT_TYPE"] == "Student Event"
     assert row["PRIMARY_ORGANIZATION"] == "Student Activities"
+
+
+def test_each_requests_event_type_goes_into_the_csv(make_request, monkeypatch):
+    monkeypatch.setenv("LIVE25_EVENT_TYPE", "Something Else")       # only a fallback: the request's own choice wins
+    req = make_request(days=8, status=RequestStatus.APPROVED, event_type="Student - Practice/Rehearsal")
+    row = parse(live25_csv.build_csv([live25_csv.make_row(req)]))[0]
+    assert row["EVENT_TYPE"] == "Student - Practice/Rehearsal"
 
 
 def test_room_without_a_25live_id_uses_its_name_with_a_warning(make_request):
@@ -227,3 +232,52 @@ def test_cancelled_before_download_never_needs_cancelling_in_25live(client, auth
     db.flush()
     assert client.get("/admin/sync/export", headers=auth(admin)).json()["cancellations"] == []
     assert client.post(f"/admin/sync/cancellations/{req.id}/done", headers=auth(admin)).status_code == 409
+
+
+# --------------------------------------------------------------------------- event details
+
+def test_event_details_go_into_the_25live_columns_and_notes(make_request, db, org):
+    from models.organization_and_venue import Organization
+    friend = Organization(name="Dance Collective", description="x")
+    db.add(friend)
+    db.flush()
+    req = make_request(days=20, status=RequestStatus.APPROVED, description="Open rehearsal.\nPizza after.",
+                       program_advisor="Dr. Smith", event_questions={"food": True, "dj": True, "minors": False})
+    req.co_hosts = [friend]
+    db.flush()
+
+    made = live25_csv.make_row(req)
+    row = parse(live25_csv.build_csv([made]))[0]
+
+    assert list(row) == live25_csv.HEADERS                      # still exactly 25Live's template
+    assert row["DESCRIPTION"] == "Open rehearsal. Pizza after."
+    for text in ("Dance Collective", "Dr. Smith", "Yes: Food, DJ"):
+        assert text in row["INTERNAL_NOTES"]
+    assert row["CUSTOM_ATTRIBUTES"] == ""                       # off unless configured
+    assert any("Co-hosting" in w for w in made.warnings) and any("Food, DJ" in w for w in made.warnings)
+
+
+def test_question_attributes_are_only_written_when_configured(make_request, monkeypatch):
+    req = make_request(days=21, status=RequestStatus.APPROVED, event_questions={"food": True, "minors": False})
+    monkeypatch.setenv("LIVE25_QUESTION_ATTRIBUTES", '{"food": "Serving Food", "minors": "Minors: Present", "bogus": "X"}')
+    made = live25_csv.make_row(req)
+    assert parse(live25_csv.build_csv([made]))[0]["CUSTOM_ATTRIBUTES"] == "Serving Food:Yes|Minors Present:No"
+    assert not any("Answer these event questions" in w for w in made.warnings)
+
+
+def test_request_without_details_exports_as_before(make_request):
+    made = live25_csv.make_row(make_request(days=22, status=RequestStatus.APPROVED))
+    row = parse(live25_csv.build_csv([made]))[0]
+    assert row["DESCRIPTION"] == "" and row["CUSTOM_ATTRIBUTES"] == "" and "Event questions" not in row["INTERNAL_NOTES"]
+    assert made.warnings == [] or all("Event questions" not in w for w in made.warnings)
+
+
+def test_details_sheet_has_a_column_per_question(client, auth, admin, approved, db):
+    req = approved(23, description="Demo", event_questions={"food": True, "dj": False})
+    batch = client.post("/admin/sync/export", headers=auth(admin)).json()["batch_id"]
+    sheet = client.get(f"/admin/sync/batches/{batch}/details", headers=auth(admin)).json()
+    row = parse(sheet["csv"])[0]
+    assert row["REQUEST_ID"] == str(req.id) and row["DESCRIPTION"] == "Demo"
+    assert row["FOOD"] == "Yes" and row["DJ"] == "No"
+    assert "details" in sheet["filename"]
+    assert client.get("/admin/sync/batches/nope/details", headers=auth(admin)).status_code == 404

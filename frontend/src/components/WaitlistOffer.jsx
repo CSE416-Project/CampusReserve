@@ -3,11 +3,11 @@ import { waitingAhead, labelOfKey, fmt12 } from './WaitlistPanel.jsx';
 
 // Shown inside BookingDrawer when a picked day/time is already booked or requested.
 // days: conflicting day keys; start/end: minutes since midnight; line: room waitlist entries.
-export default function WaitlistOffer({ roomName, days, start, end, times, line, busy, named, onJoin }) {
+export default function WaitlistOffer({ roomName, days, start, end, times, line, busy, named, blocker = '', onJoin }) {
   const ref = useRef(null);
   useEffect(() => { if (days.length) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [days.length > 0]);
   if (days.length === 0) return null;
-  const ready = !!named;
+  const ready = !!named && !blocker;
 
   return (
     <div ref={ref} style={{ marginTop: 16, border: '2px solid var(--red)', borderRadius: 12, overflow: 'hidden', background: 'var(--card)' }}>
@@ -42,7 +42,7 @@ export default function WaitlistOffer({ roomName, days, start, end, times, line,
         <button disabled={busy || !ready} onClick={() => onJoin()}
           style={{ width: '100%', marginTop: 12, padding: '11px', borderRadius: 10, fontSize: 15.5, fontWeight: 700, color: 'var(--ink)',
           background: ready ? 'var(--blue)' : 'var(--line-soft)' }}>
-          {busy ? 'Joining…' : ready ? 'Join waitlist' : 'Add an event name to join'}
+          {busy ? 'Joining…' : ready ? 'Join waitlist' : !named ? 'Add an event name to join' : blocker}
         </button>
         <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', marginTop: 6 }}>
           After joining, see your spot under My requests. Your final position is confirmed once you join.

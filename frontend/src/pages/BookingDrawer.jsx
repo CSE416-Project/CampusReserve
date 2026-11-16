@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { slotState } from '../data/mock.js';
-import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf } from '../api.js';
+import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf, rememberedAdvisor, rememberAdvisor } from '../api.js';
+import { QUESTION_LABELS, emptyDetails, detailsBlocker, detailsPayload } from '../data/eventDetails.js';
+import EventDetailsForm from '../components/EventDetailsForm.jsx';
 import Pill from '../components/Pill.jsx';
 import WaitlistOffer from '../components/WaitlistOffer.jsx';
 import TestBookingNotice, { TEST_BOOKINGS_ONLY, LIVE25_URL } from '../components/TestBookingNotice.jsx';
@@ -23,7 +25,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const timeBox = { padding:"9px 10px", fontSize:15.5, fontWeight:600, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", color:"var(--ink)" };
 const navBtn = { width:34, height:34, borderRadius:8, border:"2px solid var(--ink)", color:"var(--ink)", background:"var(--card)", fontWeight:700, fontSize:16 };
 
-export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist, waitlistLine = [], orgs = [] }) {
+export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist, onSearchOrgs, waitlistLine = [], orgs = [] }) {
   const todayKey = dayKeyOf(new Date());
   const now = new Date();
   const pf = room?.prefill;   // date + time picked in Find a Space's "Available on" filter
@@ -46,6 +48,9 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const [wlMsg, setWlMsg] = useState("");
   const [eventName, setEventName] = useState("");
   const [names, setNames] = useState({});            // an optional event name for one day; blank = use the main name
+  const [det, setDet] = useState(emptyDetails);       // attendance, description, event questions, co-hosts, advisor, policy (EventDetailsForm)
+  // Pre-fill the club's program advisor from last time, until the user edits the field.
+  useEffect(() => { if (!det.advisorTouched) setDet(d => ({ ...d, advisor: rememberedAdvisor(orgs.length > 1 ? org : orgs[0]) })); }, [org, orgs.length]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState("");
   const [live, setLive] = useState({});                // live busy intervals by day key
   const [schedErr, setSchedErr] = useState("");   // set when the room's schedule can't be loaded
@@ -110,7 +115,8 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const conflicts = sorted.filter(k => { const o = overlaps(k); return o.booked.length > 0 || o.requested.length > 0; });
   const needOrg = orgs.length > 1 && !org;
   const bookingOrg = orgs.length > 1 ? org : orgs[0];
-  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg && sorted.every(k => nameOf(k));   // every day needs a name: its own, or the main one
+  const blocker = detailsBlocker(det, room.cap);   // what's still missing from the event details ("" = nothing)
+  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg && sorted.every(k => nameOf(k)) && !blocker;   // every day needs a name: its own, or the main one
 
   // The top time box sets the default for new days, and moves any day that is still on that default.
   const changeDefault = (ns, ne) => {
@@ -151,7 +157,8 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     setBusy(true); setError("");
     try {
       const picks = sorted.map(k => ({ key: k, label: labelOf(k), start: toHHMM(tOf(k).start), end: toHHMM(tOf(k).end), event: nameOf(k) }));
-      const failed = (await onSubmit(room, picks, bookingOrg, eventName.trim())) || [];
+      rememberAdvisor(bookingOrg, det.advisor.trim());
+      const failed = (await onSubmit(room, picks, bookingOrg, eventName.trim(), detailsPayload(det, bookingOrg))) || [];
       if (failed.length === 0) { setDone(true); return; }
       setDates(failed.map(f => f.pick.key)); setConfirming(false);
       setError(failed.map(f => `${f.pick.label}: ${f.msg}`).join(" "));
@@ -163,7 +170,8 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     setBusy(true); setError(""); setWlMsg("");
     try {
       const picks = conflicts.map(k => ({ key: k, label: labelOf(k), start: toHHMM(tOf(k).start), end: toHHMM(tOf(k).end), event: nameOf(k) }));
-      const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName.trim())) || [];
+      rememberAdvisor(bookingOrg, det.advisor.trim());
+      const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName.trim(), detailsPayload(det, bookingOrg))) || [];
       const ok = picks.length - failed.length;
       if (ok) setWlMsg(`✓ You joined the waitlist for ${ok} time slot${ok === 1 ? "" : "s"}. See your spot under My requests.`);
       setDates(ds => ds.filter(k => !conflicts.includes(k) || failed.some(f => f.pick.key === k)));
@@ -236,6 +244,14 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
                 <div style={{ fontSize:14, color:"var(--ink-faint)", marginBottom:8 }}>{room.building}</div>
                 {!sorted.some(k => nameOf(k) !== eventName.trim()) && <div style={{ fontSize:15, marginBottom:6 }}>Event: <b>{eventName.trim()}</b></div>}
                 {bookingOrg && <div style={{ fontSize:15, marginBottom:6 }}>Booking for: <b>{bookingOrg}</b></div>}
+                {(() => { const p = detailsPayload(det, bookingOrg), inc = Object.keys(QUESTION_LABELS).filter(k => det.questions[k]).map(k => QUESTION_LABELS[k]); return (<>
+                  <div style={{ fontSize:15, marginBottom:6 }}>Event type: <b>{p.eventType}</b></div>
+                  <div style={{ fontSize:15, marginBottom:6 }}>Expected attendance: <b>{p.headcount}</b></div>
+                  <div style={{ fontSize:15, marginBottom:6, whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>About: {p.description}</div>
+                  <div style={{ fontSize:15, marginBottom:6 }}>Includes: <b>{inc.length ? inc.join(", ") : "nothing special"}</b></div>
+                  {p.coHostNames.length > 0 && <div style={{ fontSize:15, marginBottom:6 }}>Co-hosting with: <b>{p.coHostNames.join(", ")}</b></div>}
+                  {p.advisor && <div style={{ fontSize:15, marginBottom:6 }}>Program advisor: <b>{p.advisor}</b></div>}
+                </>); })()}
                 {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}><b>{labelOf(k)}</b> · {fmt12(tOf(k).start)} – {fmt12(tOf(k).end)}{sorted.some(j => nameOf(j) !== eventName.trim()) && <> · {nameOf(k)}</>}</div>)}
               </div>
             </div>
@@ -245,12 +261,6 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
             {schedErr && <div role="alert" style={{ marginBottom:14, padding:"10px 14px", borderRadius:10, background:"var(--red-wash)",
               color:"var(--red)", border:"2px solid var(--red)", fontSize:14, fontWeight:600 }}>
               Couldn't load this room's schedule ({schedErr}), so some times may look free when they aren't. Change months or reopen to retry.</div>}
-            <div style={{ marginBottom:18 }}>
-              <div style={{ fontSize:15.6, fontWeight:700, marginBottom:2 }}>Event name</div>
-              <div style={{ fontSize:13.5, color:"var(--ink-faint)", marginBottom:8 }}>Used for every day. If a day is a different event, give it its own name in "Your selection". You can leave this blank if every day has its own name.</div>
-              <input value={eventName} onChange={e => setEventName(e.target.value)} maxLength={100} placeholder="e.g. Spring showcase rehearsal"
-                style={{ width:"100%", padding:"10px 12px", fontSize:15, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" }} />
-            </div>
             {orgs.length > 1 && (
               <div style={{ marginBottom:18 }}>
                 <div style={{ fontSize:15.6, fontWeight:700, marginBottom:8 }}>Booking for which club?</div>
@@ -357,9 +367,11 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               </div>
             )}
 
+            <EventDetailsForm value={det} onChange={setDet} eventName={eventName} onEventName={setEventName} org={bookingOrg} cap={room.cap} search={onSearchOrgs} />
+
             {wlMsg && <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
             {conflicts.length > 0 && !needOrg && onJoinWaitlist && (
-              <WaitlistOffer named={conflicts.every(k => nameOf(k))} roomName={room.name} days={conflicts} start={start} end={end} times={times} line={waitlistLine} busy={busy} onJoin={guarded(joinWl, true)} />
+              <WaitlistOffer named={conflicts.every(k => nameOf(k))} blocker={blocker} roomName={room.name} days={conflicts} start={start} end={end} times={times} line={waitlistLine} busy={busy} onJoin={guarded(joinWl, true)} />
             )}
           </div>
         </div>
@@ -387,6 +399,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
                 : sorted.length === 0 ? "Pick at least one day"
                 : conflicts.length ? "Time conflict: join the waitlist or change the time"
                 : !sorted.every(k => nameOf(k)) ? "Add an event name to continue"
+                : blocker ? blocker
                 : `Review ${sorted.length} request${sorted.length === 1 ? "" : "s"}`}
             </button>
           )}

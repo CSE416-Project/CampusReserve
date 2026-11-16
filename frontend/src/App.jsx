@@ -23,6 +23,7 @@ import VerifyEmail from './pages/VerifyEmail.jsx';
 import ConfirmEmail from './pages/ConfirmEmail.jsx';
 import Verifications from './pages/Verifications.jsx';
 import { setKnownClubs } from './components/OrgLink.jsx';
+import { displayDetails } from './data/eventDetails.js';
 import * as api from './api.js';
 import LoadingScreen from './components/LoadingScreen.jsx';
 import Analytics from './pages/Analytics.jsx';
@@ -169,19 +170,19 @@ export default function App() {
   };
 
   // returns the picks that failed ([] when every day was requested)
-  const submitRequest = async (room,picks,org,eventName) => {
+  const submitRequest = async (room,picks,org,eventName,details) => {
     if (api.LIVE) {
       const orgId = orgIds[org];
       if (!orgId) throw new Error("You aren't verified for a club yet. Add your club in your profile and wait for an admin to verify you.");
       const failed = [];
       for (const p of picks) {
-        try { await api.createRequest(api.requestBody(p.room || room, orgId, p, eventName || `${org} event`)); }
+        try { await api.createRequest(api.requestBody(p.room || room, orgId, p, eventName || `${org} event`, details)); }
         catch (e) { failed.push({ pick:p, msg:e.message }); }
       }
       await loadRequests(role, rooms);
       return failed;
     }
-    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room:p.room || room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:p.event || eventName,
+    setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room:p.room || room, org, date:p.label, time:`${p.start}–${p.end}`, status:"pending", event:p.event || eventName, ...displayDetails(details),
       startAt:new Date(`${p.key}T${p.start}`), endAt:new Date(`${p.key}T${p.end}`) }))]);
     return [];
   };
@@ -215,14 +216,14 @@ export default function App() {
   useEffect(() => { setWaitlistLine([]); loadWaitlist(wlRoom); }, [wlRoom?.id]);
 
   // returns the picks that failed, same contract as submitRequest
-  const joinWaitlist = async (room,picks,org,eventName) => {
+  const joinWaitlist = async (room,picks,org,eventName,details) => {
     if (!api.LIVE) {
       const cur = mockWl[room.id] || [];
       const pos = picks.map(p => cur.filter(e => e.start.startsWith(p.key)).length + 1);
       setMockWl(m => ({ ...m, [room.id]:[...(m[room.id] || []), ...picks.map((p,i) => ({ position:pos[i],
         start:`${p.key}T${p.start}:00`, end:`${p.key}T${p.end}:00`, is_yours:true, request_id:`mock-${Date.now()}-${i}` }))] }));
       setRequests(r => [...r, ...picks.map((p,i) => ({ id:Date.now()+i, room, org, date:p.label, time:`${p.start}–${p.end}`,
-        status:"waitlisted", position:pos[i], event:p.event || eventName,
+        status:"waitlisted", position:pos[i], event:p.event || eventName, ...displayDetails(details),
         startAt:new Date(`${p.key}T${p.start}`), endAt:new Date(`${p.key}T${p.end}`) }))]);
       return [];
     }
@@ -230,7 +231,7 @@ export default function App() {
     if (!orgId) throw new Error("You aren't verified for a club yet.");
     const failed = [];
     for (const p of picks) {
-      try { await api.createRequest({ ...api.requestBody(p.room || room, orgId, p, eventName), join_waitlist_if_taken:true }); }
+      try { await api.createRequest({ ...api.requestBody(p.room || room, orgId, p, eventName, details), join_waitlist_if_taken:true }); }
       catch (e) { failed.push({ pick:p, msg:e.message }); }
     }
     await loadWaitlist(room);
@@ -463,7 +464,7 @@ export default function App() {
       )}
 
       {openRoom && role!=="general" && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={leaderOrgs}
-        onJoinWaitlist={joinWaitlist} waitlistLine={api.LIVE ? waitlistLine : (mockWl[openRoom?.id] || [])} />}
+        onSearchOrgs={searchOrgOptions} onJoinWaitlist={joinWaitlist} waitlistLine={api.LIVE ? waitlistLine : (mockWl[openRoom?.id] || [])} />}
     </div>
   );
 }
