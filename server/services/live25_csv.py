@@ -16,7 +16,7 @@ Which bookings are already exported is tracked on the request itself
 (Request.exported_at / export_batch_id), so each download only holds new ones.
 
 Settings (environment variables), because these must match 25Live exactly:
-    LIVE25_EVENT_TYPE            default "Meeting"
+    LIVE25_EVENT_TYPE            fallback only; each request's own event type (chosen on the booking form) is used
     LIVE25_PRIMARY_ORGANIZATION  default: the requesting club's name
     LIVE25_QUESTION_ATTRIBUTES   optional JSON mapping our event questions to the
                                  25Live custom-attribute names that hold them, e.g.
@@ -61,8 +61,10 @@ EVENT_TITLE_LIMIT = 120  # ...and EVENT_TITLE
 CANCEL_WINDOW_DAYS = 14  # how long a cancelled-after-export booking stays on the to-do list
 
 
-def event_type() -> str:
-    return os.getenv("LIVE25_EVENT_TYPE", "Meeting")
+def event_type(req: Request | None = None) -> str:
+    """The request's own event type (chosen on the booking form). LIVE25_EVENT_TYPE is only the fallback
+    for a request that has none, and 25Live's usual student type is the last resort."""
+    return (req.event_type if req is not None and req.event_type else None) or os.getenv("LIVE25_EVENT_TYPE") or "Student - Program"
 
 
 def primary_organization_override() -> str | None:
@@ -166,7 +168,7 @@ def make_row(req: Request) -> ExportRow:
         "EVENT_TITLE": _clean(req.event_name, EVENT_TITLE_LIMIT),
         "DESCRIPTION": _clean(req.description),
         "INTERNAL_NOTES": notes,
-        "EVENT_TYPE": event_type(),
+        "EVENT_TYPE": event_type(req),
         "PRIMARY_ORGANIZATION": _clean(primary_organization_override() or org_name),
         "EXP_HEADCOUNT": attendance,
         "PROFILE_ID": f"P-{req.id}",

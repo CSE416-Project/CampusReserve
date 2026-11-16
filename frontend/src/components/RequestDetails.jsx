@@ -11,6 +11,7 @@ export default function RequestDetails({ req, defaultOpen = false }) {
   return (
     <details open={defaultOpen} style={{ marginTop: 12, background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 10, padding: '9px 13px' }}>
       <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: 14.5 }}>Event details</summary>
+      {req.eventType && <div style={row}><span style={label}>Event type:</span> {req.eventType}</div>}
       {req.headcount ? <div style={row}><span style={label}>Expected attendance:</span> {req.headcount}</div> : null}
       {req.description && <div style={{ ...row, whiteSpace: 'pre-wrap' }}><span style={label}>About:</span> {req.description}</div>}
       {req.includes.length > 0 && (

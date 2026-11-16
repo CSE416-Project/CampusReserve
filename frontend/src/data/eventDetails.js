@@ -8,31 +8,29 @@
 export const DEFAULT_EVENT_TYPE = "Student - Program";   // 25Live's default for club events
 export const MAX_CO_HOSTS = 5;                            // server limit (MAX_CO_HOSTS)
 
-export const QUESTION_GROUPS = [
-  { title: "Food & sales", items: [
-    { key: "selling", label: "Selling anything" },
-    { key: "food", label: "Serving food" },
-  ]},
-  { title: "Tech & performance", items: [
-    { key: "av", label: "A/V (projector, screen, sound)" },
-    { key: "live_performance", label: "Live performance" },
-    { key: "dj", label: "DJ" },
-    { key: "special_lighting", label: "Special lighting" },
-    { key: "electrical", label: "Electrical access" },
-    { key: "photo_booth", label: "Photo booth" },
-    { key: "photographer", label: "Photographer or videographer" },
-  ]},
-  { title: "Activities & setup", items: [
-    { key: "guest_speaker", label: "Guest speaker" },
-    { key: "art_crafts", label: "Art or crafting activities" },
-    { key: "special_setup", label: "Special room setup" },
-  ]},
-  { title: "Safety", items: [
-    { key: "minors", label: "Minors from off-campus (16 and under)" },
-  ]},
-];
+// 25Live's event types for student events (as shown in its Event Type list). "Student - Program" is 25Live's
+// default and fits most club events. If 25Live offers more types to your account, add them here: the exact
+// text is what gets written into the CSV, so it has to match 25Live character for character.
+export const EVENT_TYPES = ["Student - Lit Table", "Student - Meeting", "Student - Practice/Rehearsal", "Student - Program"];
 
-export const QUESTION_LABELS = Object.fromEntries(QUESTION_GROUPS.flatMap(g => g.items.map(i => [i.key, i.label])));
+// The yes/no questions, A to Z. Unticked = No (25Live asks every one of them).
+export const QUESTIONS = [
+  { key: "selling", label: "Selling anything" },
+  { key: "food", label: "Serving food" },
+  { key: "av", label: "A/V (projector, screen, sound)" },
+  { key: "live_performance", label: "Live performance" },
+  { key: "dj", label: "DJ" },
+  { key: "special_lighting", label: "Special lighting" },
+  { key: "electrical", label: "Electrical access" },
+  { key: "photo_booth", label: "Photo booth" },
+  { key: "photographer", label: "Photographer or videographer" },
+  { key: "guest_speaker", label: "Guest speaker" },
+  { key: "art_crafts", label: "Art or crafting activities" },
+  { key: "special_setup", label: "Special room setup" },
+  { key: "minors", label: "Minors from off-campus (16 and under)" },
+].sort((a, b) => a.label.localeCompare(b.label));
+
+export const QUESTION_LABELS = Object.fromEntries(QUESTIONS.map(q => [q.key, q.label]));
 
 // Everything unticked: sent as {} / all false.
 export const emptyQuestions = () => Object.fromEntries(Object.keys(QUESTION_LABELS).map(k => [k, false]));
@@ -52,7 +50,7 @@ export function displayDetails(d = {}) {
 }
 
 // ---- the booking form's state --------------------------------------------------------------
-export const emptyDetails = () => ({ headcount: "", description: "", questions: emptyQuestions(), coHosts: [], advisor: "", advisorTouched: false, policyAgreed: false });
+export const emptyDetails = () => ({ eventType: DEFAULT_EVENT_TYPE, headcount: "", description: "", questions: emptyQuestions(), coHosts: [], advisor: "", advisorTouched: false, policyAgreed: false });
 
 // What still blocks sending the request (empty string = nothing). cap = the room's capacity.
 export function detailsBlocker(d, cap) {
@@ -67,6 +65,6 @@ export function detailsBlocker(d, cap) {
 // The shape api.requestBody() and displayDetails() take. A club can't co-host with itself.
 export function detailsPayload(d, org) {
   const hosts = d.coHosts.filter(c => c.name !== org);
-  return { headcount: Number(d.headcount.trim()) || null, description: d.description.trim(), questions: d.questions,
+  return { eventType: d.eventType, headcount: Number(d.headcount.trim()) || null, description: d.description.trim(), questions: d.questions,
     coHostIds: hosts.map(c => c.id).filter(Boolean), coHostNames: hosts.map(c => c.name), advisor: d.advisor.trim(), policyAgreed: d.policyAgreed };
 }

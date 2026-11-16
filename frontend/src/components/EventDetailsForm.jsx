@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { QUESTION_GROUPS, MAX_CO_HOSTS } from '../data/eventDetails.js';
+import { QUESTIONS, EVENT_TYPES, MAX_CO_HOSTS } from '../data/eventDetails.js';
 
 const textBox = { width:"100%", padding:"10px 12px", fontSize:15, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" };
 const fieldLabel = { display:"block", fontSize:14.5, fontWeight:700, marginBottom:6 };
@@ -7,8 +7,8 @@ const hint = { fontSize:13, color:"var(--ink-faint)", marginTop:5, lineHeight:1.
 
 // The questions 25Live's request form asks beyond name, date and time.
 // value/onChange: the form state (see emptyDetails in data/eventDetails.js); org = the club booking;
-// cap = the room's capacity; search(q) -> [{ id, name }] finds other clubs for the co-host picker.
-export default function EventDetailsForm({ value: v, onChange, org, cap, search }) {
+// eventName/onEventName = the event's name (asked first, here, so people reach it after choosing days); cap = the room's capacity; search(q) -> [{ id, name }] finds other clubs for the co-host picker.
+export default function EventDetailsForm({ value: v, onChange, eventName, onEventName, org, cap, search }) {
   const set = patch => onChange({ ...v, ...patch });
   const hc = /^\d+$/.test(v.headcount.trim()) ? Number(v.headcount.trim()) : NaN;
   const overCap = hc >= 1 && cap > 0 && hc > cap;
@@ -18,6 +18,21 @@ export default function EventDetailsForm({ value: v, onChange, org, cap, search 
     <div style={{ marginTop: 22 }}>
       <div style={{ fontSize:15.6, fontWeight:700, marginBottom:10 }}>About your event</div>
       <div style={{ border:"2px solid var(--ink)", borderRadius:12, padding:"14px 14px 16px", background:"var(--paper)" }}>
+        <div style={{ marginBottom:16 }}>
+          <label htmlFor="book-event-name" style={fieldLabel}>Event name</label>
+          <input id="book-event-name" value={eventName} onChange={e => onEventName(e.target.value)} maxLength={100}
+            placeholder="e.g. Spring showcase rehearsal" aria-describedby="book-event-name-hint" style={textBox} />
+          <div id="book-event-name-hint" style={hint}>Used for every day. If a day is a different event, give it its own name in "Your selection" above. You can leave this blank if every day has its own name.</div>
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <label htmlFor="book-event-type" style={fieldLabel}>Event type</label>
+          <select id="book-event-type" value={v.eventType} onChange={e => set({ eventType: e.target.value })} style={textBox}>
+            {EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <div style={hint}>Pick what best describes the event. Most club events are a Program.</div>
+        </div>
+
         <div style={{ marginBottom:16 }}>
           <label htmlFor="book-headcount" style={fieldLabel}>Expected attendance</label>
           <input id="book-headcount" type="number" inputMode="numeric" min={1} step={1} value={v.headcount}
@@ -39,18 +54,15 @@ export default function EventDetailsForm({ value: v, onChange, org, cap, search 
 
         <fieldset style={{ border:"none", padding:0, margin:"0 0 14px" }}>
           <legend style={{ ...fieldLabel, padding:0 }}>What will your event include?</legend>
-          <div style={{ ...hint, marginTop:0, marginBottom:6 }}>Tick anything that applies and leave the rest blank. Admins use these to check safety and building rules.</div>
-          {QUESTION_GROUPS.map(g => (
-            <div key={g.title} style={{ marginTop:10 }}>
-              <div style={{ fontSize:13, fontWeight:700, color:"var(--ink-faint)", textTransform:"uppercase", letterSpacing:".04em" }}>{g.title}</div>
-              {g.items.map(it => (
-                <label key={it.key} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0", fontSize:15, cursor:"pointer" }}>
-                  <input type="checkbox" checked={!!v.questions[it.key]} style={{ width:18, height:18, accentColor:"#1B2A4A", flexShrink:0 }}
-                    onChange={e => set({ questions: { ...v.questions, [it.key]: e.target.checked } })} />
-                  {it.label}
-                </label>
-              ))}
-            </div>
+          <div style={{ ...hint, marginTop:0, marginBottom:6 }}>
+            Tick everything that applies. If you leave a box unticked, we send it to 25Live as <b>No</b>, since 25Live asks every one of these. Admins use your answers to check safety and building rules.
+          </div>
+          {QUESTIONS.map(it => (
+            <label key={it.key} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 0", fontSize:15, cursor:"pointer" }}>
+              <input type="checkbox" checked={!!v.questions[it.key]} style={{ width:18, height:18, accentColor:"#1B2A4A", flexShrink:0 }}
+                onChange={e => set({ questions: { ...v.questions, [it.key]: e.target.checked } })} />
+              {it.label}
+            </label>
           ))}
         </fieldset>
 

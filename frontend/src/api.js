@@ -273,6 +273,7 @@ export const adaptPost = p => ({
 // Without server connection, these run on demo data: data/mockExport.js.
 export const exportPreview = LIVE ? (includePast = false) => call("/admin/sync/export" + qs({ include_past: includePast || undefined })) : demo.exportPreview;
 export const exportNew = LIVE ? (includePast = false) => call("/admin/sync/export" + qs({ include_past: includePast || undefined }), { method: "POST" }) : demo.exportNew;
+export const exportDetails = LIVE ? id => call(`/admin/sync/batches/${encodeURIComponent(id)}/details`) : null;   // admin-only sheet, not for 25Live
 export const exportBatch = LIVE ? id => call(`/admin/sync/batches/${encodeURIComponent(id)}/csv`) : demo.exportBatch;
 export const confirmBatch = LIVE ? id => call(`/admin/sync/batches/${encodeURIComponent(id)}/confirm`, { method: "POST" }) : demo.confirmBatch;
 export const undoBatch = LIVE ? id => call(`/admin/sync/batches/${encodeURIComponent(id)}/undo`, { method: "POST" }) : demo.undoBatch;
