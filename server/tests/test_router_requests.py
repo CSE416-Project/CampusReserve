@@ -90,7 +90,8 @@ def at(days, hour=18):
 def body(org, room, days=20, hour=18, hours=2, **kw):
     b = {"organization_id": str(org.id), "room_id": str(room.id), "event_name": "Club Night",
          "start_time": at(days, hour), "end_time": at(days, hour + hours),
-         "expected_attendance": 25}
+         "expected_attendance": 25,
+         "policy_agreed": True}  # the booking form's "I agree to adhere to all building policies"
     b.update(kw)
     return b
 
@@ -159,6 +160,40 @@ def test_check_needs_a_token(client, org, room):
 # =============================================================================
 # POST /requests
 # =============================================================================
+
+def test_submit_requires_agreeing_to_the_building_policies(client, auth, leader, verified, org, room):
+    r = client.post("/requests", json=body(org, room, policy_agreed=False), headers=auth(leader))
+    assert r.status_code == 422 and "building policies" in r.json()["detail"]
+
+
+def test_submit_saves_and_returns_the_event_details(client, auth, leader, verified, org, room):
+    r = client.post("/requests", json=body(org, room, event_type="Student - Meeting", description="  Weekly meeting  ",
+                                           event_questions={"food": True}, program_advisor="Dr. Smith"),
+                    headers=auth(leader))
+
+    assert r.status_code == 201
+    req = r.json()
+    assert req["event_type"] == "Student - Meeting" and req["description"] == "Weekly meeting"  # trimmed
+    assert req["program_advisor"] == "Dr. Smith" and req["policy_agreed_at"] is not None
+    assert req["event_questions"]["food"] is True and req["event_questions"]["dj"] is False  # unticked = No
+    assert len(req["event_questions"]) == 13 and req["co_hosts"] == []
+
+
+def test_submit_defaults_to_the_student_program_event_type(client, auth, leader, verified, org, room):
+    r = client.post("/requests", json=body(org, room), headers=auth(leader))
+    assert r.status_code == 201 and r.json()["event_type"] == "Student - Program"
+
+
+def test_submit_rejects_an_unknown_event_question(client, auth, leader, verified, org, room):
+    r = client.post("/requests", json=body(org, room, event_questions={"bogus": True}), headers=auth(leader))
+    assert r.status_code == 422
+
+
+def test_submit_rejects_an_unknown_co_hosting_club(client, auth, leader, verified, org, room):
+    r = client.post("/requests", json=body(org, room, co_host_organization_ids=[str(uuid.uuid4())]),
+                    headers=auth(leader))
+    assert r.status_code == 422
+
 
 def test_verified_member_submits_a_request(client, auth, leader, verified, org, room):
     r = client.post("/requests", json=body(org, room, event_name="  Game Night  "),

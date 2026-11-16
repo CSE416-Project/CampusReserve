@@ -86,7 +86,7 @@ def _custom_attributes(req: Request) -> str:
     mapping, answers = question_attributes(), req.event_questions or {}
     if not mapping or not answers:
         return ""
-    return "|".join(f"{_clean(name).replace(':', ' ')}:{'Yes' if answers.get(k) else 'No'}"
+    return "|".join(f"{' '.join(_clean(name).replace(':', ' ').split())}:{'Yes' if answers.get(k) else 'No'}"
                     for k, name in mapping.items())
 
 
