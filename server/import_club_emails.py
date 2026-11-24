@@ -121,7 +121,10 @@ def main() -> None:
     url = os.environ.get("DATABASE_URL")
     if not url:
         sys.exit("Set DATABASE_URL first (it's in your .env).")
-    with Session(create_engine(url)) as db:
+    # Supabase's transaction pooler (port 6543) can't use prepared statements, so turn them
+    # off here the same way the app does. Harmless on any other Postgres.
+    engine = create_engine(url, connect_args={"prepare_threshold": None})
+    with Session(engine) as db:
         orgs = db.query(Organization).all()
         updates, report = plan(sheet, [o.name for o in orgs], args.accept_guesses)
 
