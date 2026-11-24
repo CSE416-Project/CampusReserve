@@ -7,6 +7,7 @@ import RoomPhoto from '../components/RoomPhoto.jsx';
 import { LIVE, availableRooms } from '../api.js';
 import useDialog from '../a11y/useDialog.js';
 import { useIsPhone, useScrollLock } from '../useMedia.js';
+import './FindSpace.css';
 
 const PAGE_SIZE = 10;
 const ALL_BUILDINGS = "All buildings";   // the "no building filter" option
@@ -102,7 +103,7 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
         </button>
       </div>
       <div className="filters-layout" style={{ display:"flex", gap:24, alignItems:"flex-start", flexWrap:"wrap" }}>
-        <aside ref={panel} className={`filters-panel${sheetOpen ? " open" : ""}`}
+        <aside ref={panel} className={`filters-panel fs-scroll${sheetOpen ? " open" : ""}`}
           {...(sheetOpen ? { role:"dialog", "aria-modal":true, "aria-labelledby":"fs-filters-title", tabIndex:-1 } : {})}
           style={{ width:340, flexShrink:0, position:"sticky", top:80, background:"var(--card)", border:"2px solid var(--ink)",
           borderRadius:14, padding:18, boxShadow:"var(--shadow)" }}>
