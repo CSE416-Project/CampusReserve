@@ -25,6 +25,8 @@ export default function ClubProfile({ name, clubs, requests, selfId, onBack, onM
         <div style={{ flex:1, minWidth:220 }}>
           <h1 style={{ fontSize:28, fontWeight:800 }}>{club.name}</h1>
           {club.category && <div style={{ fontSize:15, color:"var(--ink-faint)" }}>{club.category}</div>}
+          {club.email && <a href={`mailto:${club.email}`} style={{ display:"inline-block", marginTop:4, fontSize:15, fontWeight:600,
+            color:"var(--link)", overflowWrap:"anywhere" }}>{club.email}</a>}
         </div>
       </div>
 

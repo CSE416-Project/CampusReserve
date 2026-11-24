@@ -24,6 +24,7 @@ class OrganizationOut(BaseModel):
     id: str
     name: str
     description: str | None
+    contact_email: str | None = None   # the club's public email, if we have one
     verified_member_count: int
     members: list[MembershipOut] | None = None   # on the detail page only. Everyone sees the verified
                                                  # e-board; admins and the org's own members see all
@@ -49,7 +50,7 @@ def list_organizations(
     if search:
         q = q.filter(func.lower(Organization.name).like(f"%{search.lower()}%"))
     return [OrganizationOut(id=str(o.id), name=o.name, description=o.description,
-                            verified_member_count=counts.get(o.id, 0))
+                            contact_email=o.contact_email, verified_member_count=counts.get(o.id, 0))
             for o in page.query(q.order_by(Organization.name, Organization.id), response).all()]
 
 
@@ -65,7 +66,7 @@ def get_organization(
     see_everyone = has_scope(user, "manage:users") or org.id in verified_org_ids(db, user)
     shown = [m for m in org.memberships if see_everyone or m.verified_at]
     return OrganizationOut(
-        id=str(org.id), name=org.name, description=org.description,
+        id=str(org.id), name=org.name, description=org.description, contact_email=org.contact_email,
         verified_member_count=sum(1 for m in org.memberships if m.verified_at),
         members=[membership_out(m) for m in shown])
 
