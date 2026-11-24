@@ -28,14 +28,15 @@ const navBtn = { width:34, height:34, borderRadius:8, border:"2px solid var(--in
 export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist, onSearchOrgs, waitlistLine = [], orgs = [] }) {
   const todayKey = dayKeyOf(new Date());
   const now = new Date();
-  const pf = room?.prefill;   // date + time picked in Find a Space's "Available on" filter
-  const pfStart = pf ? fromHHMM(pf.from) : null, pfEnd = pf ? fromHHMM(pf.to) : null;
-  const [month, setMonth] = useState(pf ? { y: +pf.date.slice(0, 4), m: +pf.date.slice(5, 7) - 1 } : { y: now.getFullYear(), m: now.getMonth() });
-  const [dates, setDates] = useState(pf ? [pf.date] : []);   // selected day keys
-  const [start, setStart] = useState(pfStart != null ? clamp(pfStart, MIN, MAX) : 18 * 60);
-  const [end, setEnd] = useState(pfEnd != null ? clamp(pfEnd, MIN, MAX) : 19 * 60);
+  const pf = room?.prefill;   // days + times picked in Find a Space's "Available on" filter: { days: [{ date, from, to }] }
+  const pfDays = pf ? (pf.days?.length ? pf.days : [{ date: pf.date, from: pf.from, to: pf.to }]) : null;
+  const pfTime = d => { const s = fromHHMM(d.from), e = fromHHMM(d.to); return { start: s != null ? clamp(s, MIN, MAX) : 18 * 60, end: e != null ? clamp(e, MIN, MAX) : 19 * 60 }; };
+  const [month, setMonth] = useState(pfDays ? { y: +pfDays[0].date.slice(0, 4), m: +pfDays[0].date.slice(5, 7) - 1 } : { y: now.getFullYear(), m: now.getMonth() });
+  const [dates, setDates] = useState(pfDays ? pfDays.map(d => d.date) : []);   // selected day keys
+  const [start, setStart] = useState(pfDays ? pfTime(pfDays[0]).start : 18 * 60);
+  const [end, setEnd] = useState(pfDays ? pfTime(pfDays[0]).end : 19 * 60);
   // Each chosen day has its own time. start/end above are the time new days start with.
-  const [times, setTimes] = useState(pf ? { [pf.date]: { start: pfStart != null ? clamp(pfStart, MIN, MAX) : 18 * 60, end: pfEnd != null ? clamp(pfEnd, MIN, MAX) : 19 * 60 } } : {});
+  const [times, setTimes] = useState(pfDays ? Object.fromEntries(pfDays.map(d => [d.date, pfTime(d)])) : {});
   const [org, setOrg] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [showCal, setShowCal] = useState(false);       // the big calendar view

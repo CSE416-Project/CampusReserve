@@ -118,6 +118,17 @@ export const availableRooms = ({ date, from, to }) => {
   return call(`/rooms/available?year=${y}&month=${m}&day=${d}&start_time=${encodeURIComponent(t12(from))}&end_time=${encodeURIComponent(t12(to))}`);
 };
 
+// Rooms that are free for any of several days and times (every day x every time window).
+// Each room that is free for at least one of them comes back with free_slots and pending_slots
+// (slot keys like "2026-12-01|18:00-20:00"); rooms missing from the list are taken for all of them.
+// dates: ["2026-12-01", ...]   windows: [{ from:"18:00", to:"20:00" }, ...]
+export const availableSlots = ({ dates, windows }) => {
+  const p = new URLSearchParams();
+  dates.forEach(d => p.append("dates", d));
+  windows.forEach(w => p.append("windows", `${w.from}-${w.to}`));
+  return call(`/rooms/available-slots?${p.toString()}`);
+};
+
 // ---- room comments ----------------------------------------------------
 export const roomComments = id => call(`/rooms/${encodeURIComponent(id)}/comments`);
 export const postRoomComment = (id, body, organization_id) =>
