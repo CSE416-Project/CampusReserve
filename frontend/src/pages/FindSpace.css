@@ -10,11 +10,9 @@
     overscroll-behavior: contain;             /* reaching the panel's end doesn't scroll the page */
     scrollbar-gutter: stable;
   }
-  /* Tablet layout: the panel sticks under the shorter top bar, above the bottom tab bar. */
+  /* Tablet layout (bottom tab bar): fits between where the panel starts and the tab bar. */
   html.has-tabbar .filters-panel.fs-scroll {
-    max-height: calc(100dvh - var(--topbar-h) - 28px - var(--tabbar-h) - var(--safe-b, 0px));
+    max-height: calc(100dvh - 150px - var(--tabbar-h) - var(--safe-b, 0px));
   }
 }
-@media (min-width: 640px) and (max-width: 1023px) {
-  html:not(.has-tabbar) .filters-panel.fs-scroll { max-height: calc(100dvh - var(--topbar-h) - 28px); }
-}
+

@@ -1,8 +1,10 @@
 // Accessibility settings: what can be changed, quick profiles, saving, and applying
 // them to the page. Settings are applied as data-a11y-* attributes and CSS variables
 // on <html>; a11y.css does the rest. Saved per browser in localStorage.
+import { setLayoutZoom } from './zoomLayout.js';
 
 const KEY = "cr_a11y";
+
 
 export const DEFAULTS = {
   zoom: 100,              // page zoom, %
@@ -79,6 +81,7 @@ export function applySettings(s) {
   const cssVar = (name, v) => (v !== "" && v != null ? root.style.setProperty(name, String(v)) : root.style.removeProperty(name));
 
   flag("zoom", s.zoom !== 100);            cssVar("--a11y-zoom", s.zoom !== 100 ? s.zoom / 100 : "");
+  setLayoutZoom(s.zoom / 100);
   flag("line-height", !!s.lineHeight);     cssVar("--a11y-line-height", s.lineHeight || "");
   flag("letter-spacing", !!s.letterSpacing); cssVar("--a11y-letter-spacing", s.letterSpacing ? `${s.letterSpacing}em` : "");
   flag("readable-font", s.readableFont);
