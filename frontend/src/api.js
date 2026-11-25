@@ -95,7 +95,7 @@ export const orgs = () => call("/organizations");
 export const orgsPage = ({ search, limit, offset = 0 } = {}) =>
   call("/organizations" + qs({ search, limit, offset }), { withTotal: true });
 export const orgDetail = id => call(`/organizations/${id}`);
-export const adaptClub = o => ({ id:o.id, name:o.name, category:null, bio:o.description || "", count:o.verified_member_count || 0, eboard:null, live:true });
+export const adaptClub = o => ({ id:o.id, name:o.name, category:null, bio:o.description || "", email:o.contact_email || "", count:o.verified_member_count || 0, eboard:null, live:true });
 
 // ---- rooms ------------------------------------------------------------
 export const rooms = () => call("/rooms");

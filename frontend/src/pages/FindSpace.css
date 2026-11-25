@@ -1,0 +1,20 @@
+/* Find a space: on tablets and computers the filter panel scrolls on its own, so its
+   bottom (features, the date and time filter) is reachable without scrolling the whole
+   page down. Phones keep the full-screen Filters sheet from responsive.css. */
+@media (min-width: 640px) {
+  .filters-panel.fs-scroll {
+    /* Fits where the panel starts (under the page title) with a 16px gap at the bottom, so its
+       end is visible right away; once the page scrolls it sticks at top:80px with a bit more room. */
+    max-height: calc(100dvh - 166px);
+    overflow-y: auto;
+    overscroll-behavior: contain;             /* reaching the panel's end doesn't scroll the page */
+    scrollbar-gutter: stable;
+  }
+  /* Tablet layout: the panel sticks under the shorter top bar, above the bottom tab bar. */
+  html.has-tabbar .filters-panel.fs-scroll {
+    max-height: calc(100dvh - var(--topbar-h) - 28px - var(--tabbar-h) - var(--safe-b, 0px));
+  }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  html:not(.has-tabbar) .filters-panel.fs-scroll { max-height: calc(100dvh - var(--topbar-h) - 28px); }
+}

@@ -120,6 +120,7 @@ export default function Clubs({ clubs, onOpenClub, loading = false }) {
                   <div>
                     <div style={{ fontWeight:700, fontSize:16 }}>{c.name}</div>
                     <div style={{ fontSize:13.5, color:"var(--ink-faint)" }}>{c.category ? `${c.category} · ` : ""}{c.count} e-board member{c.count === 1 ? "" : "s"}</div>
+                    {c.email && <div style={{ fontSize:13.5, color:"var(--ink-soft)", overflowWrap:"anywhere" }}>{c.email}</div>}
                   </div>
                 </div>
                 <div style={{ fontSize:14, color:"var(--ink-soft)" }}>{c.bio || "No description yet."}</div>
