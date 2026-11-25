@@ -4,7 +4,10 @@ import Pill from '../components/Pill.jsx';
 import LoadingScreen from '../components/LoadingScreen.jsx';
 import Feature from '../components/Feature.jsx';
 import RoomPhoto from '../components/RoomPhoto.jsx';
-import { LIVE, availableRooms } from '../api.js';
+import { LIVE, availableSlots } from '../api.js';
+import MultiDayPicker from '../components/MultiDayPicker.jsx';
+import TimeWindowsEditor from '../components/TimeWindowsEditor.jsx';
+import { MAX_SLOTS, buildSlots, dayKey, fmtDay, fmtWindow, prefillFor } from '../availability.js';
 import useDialog from '../a11y/useDialog.js';
 import { useIsPhone, useScrollLock } from '../useMedia.js';
 import './FindSpace.css';
@@ -35,23 +38,36 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
   const allFeatures = useMemo(()=> uniqSorted(rooms.flatMap(r=>r.features || [])),[rooms]);
   const [q,setQ]=useState(""); const [building,setBuilding]=useState(ALL_BUILDINGS); const [type,setType]=useState(ANY_TYPE);
   const [minCap,setMinCap]=useState(0);
-  // "Available on" filter: date + from + to (live mode only)
-  const [date,setDate]=useState(""); const [from,setFrom]=useState(""); const [to,setTo]=useState("");
+  // "Available on" filter (live mode only): any number of days and any number of time windows.
+  // Every day is checked against every window; each pair is a "slot".
+  const [dates,setDates]=useState([]);
+  const [windows,setWindows]=useState([{ id:1, from:"", to:"" }]);
+  const [mode,setMode]=useState("all");   // "all": free at every slot, "any": free at one or more
   const [showTaken,setShowTaken]=useState(false);
-  const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
-  const timeSet = LIVE && !!date && !!from && !!to && to > from;
+  const todayStr = dayKey(new Date());
+  const { slots, tooMany, combos, dayCount, timeCount } = useMemo(()=>buildSlots(dates, windows), [dates, windows]);
+  const total = slots.length;
+  const timeSet = LIVE && total > 0 && !tooMany;
+  const slotsKey = slots.map(x=>x.key).join(",");
   const [avail,setAvail]=useState({ map:null, loading:false, error:"" });
   useEffect(() => {
     if (!timeSet) { setAvail({ map:null, loading:false, error:"" }); return; }
     let off = false;
     setAvail({ map:null, loading:true, error:"" });
-    availableRooms({ date, from, to })
-      .then(list => { if (!off) setAvail({ map:new Map(list.map(r => [String(r.id), r.overlapping_pending_requests || 0])), loading:false, error:"" }); })
+    availableSlots({ dates:[...new Set(slots.map(x=>x.date))], windows:[...new Map(slots.map(x=>[`${x.from}-${x.to}`, { from:x.from, to:x.to }])).values()] })
+      .then(list => { if (!off) setAvail({ map:new Map(list.map(r => [String(r.id), { free:new Set(r.free_slots || []), pending:new Set(r.pending_slots || []) }])), loading:false, error:"" }); })
       .catch(e => { if (!off) setAvail({ map:null, loading:false, error:e.message }); });
     return () => { off = true; };
-  }, [timeSet, date, from, to]);
-  // booked = not free (25Live or an approved booking); requested = free, but another club has a pending request
-  const takenKind = r => !avail.map ? null : !avail.map.has(String(r.id)) ? "booked" : avail.map.get(String(r.id)) > 0 ? "requested" : null;
+  }, [timeSet, slotsKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // How many of the picked slots a room is free for. "clean" leaves out slots where another club has a pending request.
+  const slotStat = r => { const i = avail.map && avail.map.get(String(r.id)); const free = i ? i.free.size : 0; return { info:i, free, clean:free - (i ? i.pending.size : 0) }; };
+  // null = a match. booked = not free at any slot; requested = free, but another club has asked for it; partial = free at some slots only.
+  const takenKind = r => {
+    if (!avail.map) return null;
+    const { free, clean } = slotStat(r);
+    if (mode === "all" ? clean === total : clean > 0) return null;
+    return free === 0 ? "booked" : clean === 0 ? "requested" : "partial";
+  };
   const [picked,setPicked]=useState([]); const [fq,setFq]=useState("");
   const [page,setPage]=useState(1);
   const toggle = f => setPicked(p => p.includes(f) ? p.filter(x=>x!==f) : [...p,f]);
@@ -66,10 +82,11 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
     if (!picked.every(f => hasFeature(r, f))) return false;
     if (avail.map && (takenKind(r) || r.closed) && !showTaken) return false;
     return true;
-  }),[rooms,q,building,type,minCap,picked,avail.map,showTaken]);
+  }).map((r,i)=>({ r, i })).sort((a,b)=> avail.map && total > 1 ? slotStat(b.r).clean - slotStat(a.r).clean || a.i - b.i : a.i - b.i).map(x=>x.r),   // with several slots, the best match first
+  [rooms,q,building,type,minCap,picked,avail.map,showTaken,mode]);
 
   // Back to page 1 whenever the filters (or the room list) change.
-  useEffect(() => setPage(1), [rooms,q,building,type,minCap,picked,avail.map,showTaken]);
+  useEffect(() => setPage(1), [rooms,q,building,type,minCap,picked,avail.map,showTaken,mode]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pageCount);
   const shown = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
@@ -80,12 +97,32 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
   const panel = useRef(null);
   useDialog(panel, { open: sheetOpen, onClose: () => setSheet(false) });
   useScrollLock(sheetOpen);
-  const activeFilters = (building!==ALL_BUILDINGS) + (type!==ANY_TYPE) + (minCap>0) + picked.length + (date||from||to ? 1 : 0) + (showTaken ? 1 : 0);
+  const activeFilters = (building!==ALL_BUILDINGS) + (type!==ANY_TYPE) + (minCap>0) + picked.length + (dates.length>0 || windows.some(w=>w.from||w.to) ? 1 : 0) + (showTaken ? 1 : 0);
   // Reset search: every field back to how the page starts.
   const searchUsed = activeFilters > 0 || q !== "" || fq !== "";
   const resetAll = () => {
     setQ(""); setBuilding(ALL_BUILDINGS); setType(ANY_TYPE); setMinCap(0);
-    setPicked([]); setFq(""); setDate(""); setFrom(""); setTo(""); setShowTaken(false);
+    setPicked([]); setFq(""); setDates([]); setWindows([{ id:1, from:"", to:"" }]); setMode("all"); setShowTaken(false);
+  };
+
+  // The label on a room card for the picked days and times (nothing for a plain match on one slot).
+  const slotBadge = r => {
+    const kind = takenKind(r), { clean } = slotStat(r), many = total > 1;
+    if (kind === "booked") return { text: many ? "Booked at all of these times" : "Booked at this time", bg:"var(--red-wash)", fg:"var(--red)" };
+    if (kind === "requested") return { text: many ? "Requested at these times" : "Requested at this time", bg:"var(--amber-wash)", fg:"var(--ink)" };
+    if (!many) return null;
+    return clean === total ? { text:`Free at all ${total} times`, bg:"var(--green-wash)", fg:"var(--green)" }
+                           : { text:`Free at ${clean} of ${total} times`, bg:"var(--amber-wash)", fg:"var(--ink)" };
+  };
+  // What the booking window starts with. "Every time": all the picked days. "Any time": the first slot that works.
+  const bookable = r => {
+    if (!timeSet) return r;
+    if (mode === "any" && total > 1) {
+      const { info } = slotStat(r);
+      const first = slots.find(x => info && info.free.has(x.key) && !info.pending.has(x.key)) || slots.find(x => info && info.free.has(x.key)) || slots[0];
+      return { ...r, prefill:prefillFor([first]) };
+    }
+    return { ...r, prefill:prefillFor(slots) };
   };
 
   const goTo = p => { setPage(p); window.scrollTo({ top:0, behavior:"smooth" }); };
@@ -141,30 +178,43 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
 
           {LIVE && (
             <div style={{ marginTop:16, paddingTop:14, borderTop:"1px solid var(--line)" }}>
-              <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Available on</label>
-              <input type="date" min={todayStr} value={date} onChange={e=>setDate(e.target.value)}
-                style={{ width:"100%", margin:"6px 0 10px", padding:"9px 11px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" }} />
-              <div style={{ display:"flex", gap:8 }}>
-                <div style={{ flex:1 }}>
-                  <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>From</label>
-                  <input type="time" step="900" value={from} onChange={e=>setFrom(e.target.value)}
-                    style={{ width:"100%", margin:"6px 0 8px", padding:"9px 8px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" }} />
+              <div style={{ fontSize:15, fontWeight:700 }}>Available on</div>
+              <div style={{ fontSize:13, color:"var(--ink-faint)", margin:"2px 0 10px" }}>Pick as many days and times as you need. We check every day at every time.</div>
+
+              <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>Days</label>
+              <MultiDayPicker value={dates} onChange={setDates} min={todayStr} />
+
+              <div style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)", margin:"16px 0 6px" }}>Times</div>
+              <TimeWindowsEditor windows={windows} onChange={setWindows} />
+
+              {tooMany && <div role="alert" style={{ fontSize:13.5, color:"var(--red)", fontWeight:600, marginTop:10 }}>
+                Too many to search: {dayCount} day{dayCount===1?"":"s"} × {timeCount} time{timeCount===1?"":"s"} = {combos}. Remove some days or times to search (the limit is {MAX_SLOTS}).</div>}
+              {avail.error && <div role="alert" style={{ fontSize:13.5, color:"var(--red)", fontWeight:600, marginTop:10 }}>{avail.error}</div>}
+              {!timeSet && !tooMany && <div style={{ fontSize:13, color:"var(--ink-faint)", marginTop:10 }}>
+                {dates.length === 0 && total === 0 ? "Pick at least one day and a start and end time to see only the rooms that are free." : dates.length === 0 ? "Pick at least one day." : "Fill in a start and end time."}</div>}
+
+              {total > 1 && (
+                <div style={{ marginTop:14 }}>
+                  <div id="fs-match-label" style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)", marginBottom:6 }}>
+                    {total} day-and-time combinations. Show rooms that are free…</div>
+                  <div role="group" aria-labelledby="fs-match-label" style={{ display:"flex", gap:8 }}>
+                    {[["all","At every time"],["any","At any time"]].map(([v,label]) => (
+                      <button key={v} type="button" aria-pressed={mode===v} onClick={()=>setMode(v)}
+                        style={{ flex:1, padding:"8px 6px", borderRadius:8, fontSize:14, fontWeight:700, color:"var(--ink)",
+                        border:"2px solid var(--ink)", background: mode===v ? "var(--blue)" : "var(--card)" }}>{label}</button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize:13, color:"var(--ink-faint)", marginTop:6 }}>
+                    {mode==="all" ? "Only rooms you could use for all of them, like a weekly meeting." : "Rooms free for at least one of them, best matches first. Good when you're flexible."}</div>
                 </div>
-                <div style={{ flex:1 }}>
-                  <label style={{ fontSize:13, fontWeight:600, color:"var(--ink-soft)" }}>To</label>
-                  <input type="time" step="900" value={to} onChange={e=>setTo(e.target.value)}
-                    style={{ width:"100%", margin:"6px 0 8px", padding:"9px 8px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none" }} />
-                </div>
-              </div>
-              {date && from && to && to <= from && <div role="alert" style={{ fontSize:13.5, color:"var(--red)", fontWeight:600, marginBottom:6 }}>The end time must be after the start time.</div>}
-              {avail.error && <div role="alert" style={{ fontSize:13.5, color:"var(--red)", fontWeight:600, marginBottom:6 }}>{avail.error}</div>}
-              {!date && !from && !to && <div style={{ fontSize:13, color:"var(--ink-faint)", marginBottom:6 }}>Pick a date and time to see only the rooms that are free then.</div>}
-              <label style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:14, cursor:"pointer", marginTop:4 }}>
+              )}
+
+              <label style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:14, cursor:"pointer", marginTop:14 }}>
                 <input type="checkbox" checked={showTaken} onChange={e=>setShowTaken(e.target.checked)} style={{ marginTop:3, accentColor:"var(--blue)" }} />
-                <span>Also show rooms that are booked or requested then{onBook ? " (you can join their waitlist)" : ""}</span>
+                <span>Also show rooms that are booked or requested {total > 1 ? "at some of these times" : "then"}{onBook ? " (you can join their waitlist)" : ""}</span>
               </label>
-              {(date || from || to) && <button onClick={()=>{ setDate(""); setFrom(""); setTo(""); }}
-                style={{ fontSize:13, fontWeight:600, color:"var(--link)", marginTop:8 }}>Clear date and time</button>}
+              {(dates.length>0 || windows.some(w=>w.from||w.to)) && <button onClick={()=>{ setDates([]); setWindows([{ id:1, from:"", to:"" }]); setMode("all"); }}
+                style={{ fontSize:13, fontWeight:600, color:"var(--link)", marginTop:8 }}>Clear days and times</button>}
             </div>
           )}
 
@@ -199,7 +249,9 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
           {!loading && avail.loading && <LoadingScreen inline label="Checking which rooms are free…" />}
           {!loading && !avail.loading && filtered.length===0 && <div style={{ textAlign:"center", padding:"50px 20px", color:"var(--ink-faint)",
             background:"var(--card)", borderRadius:14, border:"2px dashed var(--ink-faint)" }}>
-            <div>{avail.map ? (onBook ? "No spaces are free then. Try another time, or tick the box to see booked rooms you can waitlist." : "No spaces are free then. Try another time, or tick the box to see the booked rooms too.") : "No spaces match those filters."}</div>
+            <div>{avail.map ? (total > 1
+              ? `No spaces are free ${mode==="all" ? "at every one of those times" : "at any of those times"}.${mode==="all" ? " Try \"At any time\", fewer days or times," : " Try other days or times,"} or tick the box to see ${onBook ? "booked rooms you can waitlist" : "the booked rooms too"}.`
+              : (onBook ? "No spaces are free then. Try another time, or tick the box to see booked rooms you can waitlist." : "No spaces are free then. Try another time, or tick the box to see the booked rooms too.")) : "No spaces match those filters."}</div>
             {searchUsed && <button onClick={resetAll} style={{ marginTop:12, padding:"8px 16px", borderRadius:8, fontSize:14, fontWeight:700,
               color:"var(--ink)", background:"var(--blue)" }}>Reset search</button>}
           </div>}
@@ -221,11 +273,10 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
                 </div>
                 <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
                   <Pill status={r.status} />
-                  {takenKind(r) && <span style={{ fontSize:12.5, fontWeight:700, padding:"3px 9px", borderRadius:999,
-                    background: takenKind(r)==="booked" ? "var(--red-wash)" : "var(--amber-wash)", color: takenKind(r)==="booked" ? "var(--red)" : "var(--ink)" }}>
-                    {takenKind(r)==="booked" ? "Booked at this time" : "Requested at this time"}</span>}
+                  {avail.map && (() => { const b = slotBadge(r); return b && <span style={{ fontSize:12.5, fontWeight:700, padding:"3px 9px", borderRadius:999, background:b.bg, color:b.fg }}>{b.text}</span>; })()}
                 </div>
               </div>
+              {avail.map && total > 1 && <SlotBreakdown slots={slots} info={slotStat(r).info} />}
               <div style={{ display:"flex", flexWrap:"wrap", gap:6, margin:"12px 0" }}>
                 {r.features.slice(0,5).map(f=><Feature key={f}>{f}</Feature>)}
                 {r.features.length>5 && <Feature>+{r.features.length-5} more</Feature>}
@@ -235,8 +286,8 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
               {!r.closed && (
                 <div className="room-card-actions" style={{ display:"flex", gap:14, alignItems:"center" }}>
                   <span style={{ fontSize:14.5, fontWeight:600, color:"var(--link)" }}>View room details ›</span>
-                  {onBook && <button onClick={e=>{ e.stopPropagation(); onBook(timeSet ? { ...r, prefill:{ date, from, to } } : r); }} style={{ marginLeft:"auto", padding:"8px 16px",
-                    borderRadius:8, fontSize:14, fontWeight:600, color:"var(--ink)", background:"var(--blue)" }}>{takenKind(r) ? "Join waitlist" : "Book"}</button>}
+                  {onBook && <button onClick={e=>{ e.stopPropagation(); onBook(bookable(r)); }} style={{ marginLeft:"auto", padding:"8px 16px",
+                    borderRadius:8, fontSize:14, fontWeight:600, color:"var(--ink)", background:"var(--blue)" }}>{["booked","requested"].includes(takenKind(r)) ? "Join waitlist" : "Book"}</button>}
                 </div>
               )}
               </div>
@@ -252,5 +303,30 @@ export default function FindSpace({ onView, onBook, rooms = [], loading = false 
         </div>
       </div>
     </main>
+  );
+}
+
+// "See which times": for each picked day, which time windows a room is free for.
+function SlotBreakdown({ slots, info }) {
+  const days = [...new Set(slots.map(x=>x.date))];
+  const state = x => !info || !info.free.has(x.key) ? "booked" : info.pending.has(x.key) ? "requested" : "free";
+  const look = { free:{ mark:"✓", word:"free", bg:"var(--green-wash)", fg:"var(--green)" },
+                 requested:{ mark:"!", word:"requested by another club", bg:"var(--amber-wash)", fg:"var(--ink)" },
+                 booked:{ mark:"✕", word:"taken", bg:"var(--red-wash)", fg:"var(--red)" } };
+  return (
+    <details onClick={e=>e.stopPropagation()} style={{ marginTop:10 }}>
+      <summary style={{ cursor:"pointer", fontSize:14, fontWeight:600, color:"var(--link)" }}>See which times</summary>
+      <div style={{ display:"grid", gap:8, marginTop:8 }}>
+        {days.map(d => (
+          <div key={d} style={{ display:"flex", flexWrap:"wrap", alignItems:"center", gap:6 }}>
+            <span style={{ fontSize:13.5, fontWeight:700, minWidth:92 }}>{fmtDay(d)}</span>
+            {slots.filter(x=>x.date===d).map(x => { const l = look[state(x)];
+              return <span key={x.key} aria-label={`${fmtDay(d)}, ${fmtWindow(x.from, x.to)}: ${l.word}`}
+                style={{ fontSize:13, fontWeight:600, padding:"3px 9px", borderRadius:999, background:l.bg, color:l.fg, border:"1.5px solid currentColor" }}>
+                <span aria-hidden="true">{l.mark} </span>{fmtWindow(x.from, x.to)}</span>; })}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }

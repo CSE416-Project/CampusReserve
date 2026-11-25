@@ -14,6 +14,7 @@ import asyncio
 import datetime as dt
 import inspect
 import logging
+import re
 import uuid
 from collections.abc import Callable
 from typing import Any, Literal
@@ -76,6 +77,14 @@ class AvailableRoomResponse(RoomResponse):
     # Pending CampusReserve requests for this window. They don't block the
     # room, but tell the user they may be competing for it.
     overlapping_pending_requests: int = 0
+
+
+class MultiAvailableRoomResponse(AvailableRoomResponse):
+    # /rooms/available-slots: which of the requested slots this room is free for.
+    # A slot is named "YYYY-MM-DD|HH:MM-HH:MM", e.g. "2026-12-01|18:00-20:00".
+    free_slots: list[str] = []
+    # The free slots that another club has a pending request on.
+    pending_slots: list[str] = []
 
 
 class Live25Feature(BaseModel):
@@ -420,10 +429,13 @@ def _parse_window(year: int, month: int, day: int,
 
 
 async def _available_rooms(db: Session, start: dt.datetime, end: dt.datetime,
-                           pick: Callable[[list[dict]], Any]) -> list[dict]:
+                           pick: Callable[[list[dict]], Any],
+                           bookings_cache: dict | None = None) -> list[dict]:
     """Rooms chosen by `pick` (sync or async) that are free for [start, end).
 
-    Shared by /available and /search so both use the same availability rules.
+    Shared by /available, /search and /available-slots so they all use the same
+    availability rules. /available-slots checks many windows in one request and
+    passes a `bookings_cache` so a room's 25Live bookings are fetched once per day.
     """
     now = campus_now()
     # One database query at a time: a Session can't be used by two threads at once.
@@ -443,8 +455,14 @@ async def _available_rooms(db: Session, start: dt.datetime, end: dt.datetime,
     last_day = (end - dt.timedelta(microseconds=1)).date()
 
     async def free_in_25live(space_id: str) -> bool | None:
+        key = (space_id, start.date(), last_day)
         try:
-            bookings = await live25.get_bookings(space_id, start.date(), last_day)
+            if bookings_cache is not None and key in bookings_cache:
+                bookings = bookings_cache[key]
+            else:
+                bookings = await live25.get_bookings(space_id, start.date(), last_day)
+                if bookings_cache is not None:
+                    bookings_cache[key] = bookings
         except live25.Live25Error as e:
             logger.warning("Availability check failed for room %s: %s", space_id, e)
             return None
@@ -504,6 +522,104 @@ async def list_available_rooms(
                                         club_bookable_only, include_inactive=False),
     )
     return [AvailableRoomResponse(**r) for r in page.items(rooms, response)]
+
+
+# At most this many (day x time window) combinations per request.
+MAX_SLOTS = 24
+_WINDOW_RE = re.compile(r"^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$")
+
+
+def _parse_slots(dates: list[str], windows: list[str]) -> list[tuple[str, dt.datetime, dt.datetime]]:
+    """Every day x time window, as (slot key, start, end), earliest first.
+
+    Dates are "YYYY-MM-DD" and windows are 24-hour "HH:MM-HH:MM". As elsewhere,
+    a window that ends at or before it starts runs past midnight. Slots that
+    have already ended are dropped.
+    """
+    def bad(msg: str) -> HTTPException:
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+    days: list[dt.date] = []
+    for d in dates:
+        try:
+            day = dt.date.fromisoformat(d)
+        except ValueError:
+            raise bad(f'"{d}" isn\'t a date like 2026-12-01.')
+        if day not in days:
+            days.append(day)
+
+    spans: list[tuple[str, dt.time, dt.time]] = []
+    for w in windows:
+        m = _WINDOW_RE.match(w.strip())
+        if not m or int(m[1]) > 23 or int(m[3]) > 23 or int(m[2]) > 59 or int(m[4]) > 59:
+            raise bad(f'"{w}" isn\'t a time window like 18:00-20:00.')
+        label = f"{int(m[1]):02d}:{m[2]}-{int(m[3]):02d}:{m[4]}"
+        if label not in [x[0] for x in spans]:
+            spans.append((label, dt.time(int(m[1]), int(m[2])), dt.time(int(m[3]), int(m[4]))))
+
+    if len(days) * len(spans) > MAX_SLOTS:
+        raise bad(f"That's {len(days) * len(spans)} combinations. Pick at most {MAX_SLOTS} "
+                  f"(days x time windows).")
+
+    now = campus_now()
+    slots = []
+    for day in sorted(days):
+        for label, t1, t2 in sorted(spans, key=lambda x: x[1]):
+            start, end = dt.datetime.combine(day, t1), dt.datetime.combine(day, t2)
+            if end <= start:
+                end += dt.timedelta(days=1)
+            if end > now:
+                slots.append((f"{day.isoformat()}|{label}", start, end))
+    if not slots:
+        raise bad("Those times have already passed.")
+    return slots
+
+
+# Must also come before "/{room_id}".
+@router.get("/available-slots", response_model=list[MultiAvailableRoomResponse])
+async def list_available_slots(
+    response: Response,
+    dates: list[str] = Query(..., description='Days to check, "YYYY-MM-DD". Repeat for several: '
+                             "&dates=2026-12-01&dates=2026-12-03"),
+    windows: list[str] = Query(..., description='Times to check, 24-hour "HH:MM-HH:MM". Repeat '
+                               "for several: &windows=18:00-20:00&windows=20:00-22:00"),
+    building: str | None = None,
+    min_capacity: int | None = None,
+    club_bookable_only: bool = False,
+    page: Page = Depends(paged()),
+    db: Session = Depends(get_db),
+    current_user: User = Security(get_current_user, scopes=["read:rooms"]),
+):
+    """Rooms free for any of several days and times, with which ones.
+
+    Every day is combined with every time window (2 days x 2 windows = 4 slots).
+    Each room that is free for at least one slot comes back with `free_slots`
+    listing the slots it is free for, best match first, so the caller can ask
+    for "free for all of them" by comparing the length of `free_slots` with the
+    number of slots it asked about. Each slot follows exactly the same rules as
+    /rooms/available. Slots that have already ended are skipped.
+    """
+    slots = _parse_slots(dates, windows)
+    bookings_cache: dict = {}
+    merged: dict[str, dict] = {}
+    # One slot at a time: they share one database Session (see _available_rooms).
+    for key, start, end in slots:
+        rooms = await _available_rooms(
+            db, start, end,
+            lambda all_rooms: _filter_rooms(all_rooms, building, min_capacity,
+                                            club_bookable_only, include_inactive=False),
+            bookings_cache=bookings_cache,
+        )
+        for r in rooms:
+            m = merged.setdefault(r["id"], {**r, "free_slots": [], "pending_slots": [],
+                                            "overlapping_pending_requests": 0})
+            m["free_slots"].append(key)
+            if r["overlapping_pending_requests"]:
+                m["pending_slots"].append(key)
+                m["overlapping_pending_requests"] += r["overlapping_pending_requests"]
+    # Free for the most slots first, then by building and name.
+    ranked = sorted(merged.values(), key=lambda r: (-len(r["free_slots"]), r.get("building") or "", r["name"]))
+    return [MultiAvailableRoomResponse(**r) for r in page.items(ranked, response)]
 
 
 # Must also come before "/{room_id}".
