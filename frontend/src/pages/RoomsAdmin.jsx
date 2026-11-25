@@ -17,7 +17,7 @@ try { saved = localStorage.getItem("cr_rooms_view"); } catch { /* storage unavai
 
 // Admin > Rooms. Two views of the same rooms: a list grouped by building, or a week calendar.
 // Connected to the server it shows the real rooms and requests; without one, the demo data.
-export default function RoomsAdmin({ rooms, requests = [], loading = false }) {
+export default function RoomsAdmin({ rooms, requests = [], loading = false, onView }) {
   const live = !!rooms && rooms.some(r => r.live);
   const roomList = live ? rooms : ROOMS;
 
@@ -92,7 +92,7 @@ export default function RoomsAdmin({ rooms, requests = [], loading = false }) {
         : filtered.length === 0 ? (
           <div style={{ textAlign:"center", padding:"50px 20px", color:"var(--ink-faint)", background:"var(--card)", borderRadius:14, border:"2px dashed var(--ink-faint)" }}>No rooms match those filters.</div>
         ) : view === "list"
-          ? <RoomList rooms={filtered} eventsFor={eventsFor} filtersActive={filtersActive} />
+          ? <RoomList rooms={filtered} eventsFor={eventsFor} filtersActive={filtersActive} onView={onView} />
           : <RoomCalendar rooms={filtered} requests={requests} live={live} />}
     </main>
   );
@@ -100,7 +100,7 @@ export default function RoomsAdmin({ rooms, requests = [], loading = false }) {
 
 // ---------------------------------------------------------------- list view
 
-function RoomList({ rooms, eventsFor, filtersActive }) {
+function RoomList({ rooms, eventsFor, filtersActive, onView }) {
   const groups = useMemo(() => {
     const m = new Map();
     for (const r of rooms) { if (!m.has(r.building)) m.set(r.building, []); m.get(r.building).push(r); }
@@ -137,7 +137,7 @@ function RoomList({ rooms, eventsFor, filtersActive }) {
               </button>
               {o && (
                 <div>
-                  {shown.map(r => <RoomRow key={r.id} room={r} events={eventsFor(r)} open={expanded === r.id} onToggle={() => setExpanded(e => e === r.id ? null : r.id)} />)}
+                  {shown.map(r => <RoomRow key={r.id} room={r} onView={onView} events={eventsFor(r)} open={expanded === r.id} onToggle={() => setExpanded(e => e === r.id ? null : r.id)} />)}
                   {g.rooms.length > shown.length && (
                     <button onClick={() => setMore(m => ({ ...m, [g.building]: (m[g.building] || PAGE) + PAGE }))}
                       style={{ width:"100%", padding:"12px", fontSize:14.5, fontWeight:700, color:"var(--link)", borderTop:"1px solid var(--line)", borderRadius:0 }}>
@@ -154,7 +154,7 @@ function RoomList({ rooms, eventsFor, filtersActive }) {
   );
 }
 
-function RoomRow({ room: r, events, open, onToggle }) {
+function RoomRow({ room: r, events, open, onToggle, onView }) {
   const next = events[0];
   return (
     <div style={{ borderTop:"1px solid var(--line)" }}>
@@ -172,6 +172,7 @@ function RoomRow({ room: r, events, open, onToggle }) {
       </button>
       {open && (
         <div style={{ padding:"4px 18px 16px" }}>
+          {onView && <button onClick={() => onView(r)} style={{ marginBottom:10, padding:"7px 14px", fontSize:14, fontWeight:700, color:"var(--ink)", background:"var(--blue)", border:"2px solid var(--ink)", borderRadius:8 }}>View room details →</button>}
           {r.features?.length > 0 && <div style={{ fontSize:13, color:"var(--ink-faint)", marginBottom:8 }}>{r.features.slice(0, 8).join(" · ")}{r.features.length > 8 ? ` · +${r.features.length - 8} more` : ""}</div>}
           {events.length === 0 ? <div style={{ fontSize:14, color:"var(--ink-faint)" }}>Nothing booked or requested yet.</div> : (
             <div style={{ display:"grid", gap:5 }}>
