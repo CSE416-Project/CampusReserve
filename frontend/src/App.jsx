@@ -309,7 +309,9 @@ export default function App() {
   const linkToken = new URLSearchParams(window.location.search).get("token") || "";
   const page = seg[0] || "";
   const viewingClub = seg[0]==="clubs" && seg[1] ? seg[1] : null;
-  const viewingRoomId = seg[0]==="find" && seg[1]==="rooms" && seg[2] ? seg[2] : null;
+  // Clubs open a room at /find/rooms/:id; admins open it at /rooms/:id (from their Rooms page or the map).
+  const viewingRoomId = role==="admin" ? (seg[0]==="rooms" && seg[1] ? seg[1] : null)
+    : (seg[0]==="find" && seg[1]==="rooms" && seg[2] ? seg[2] : null);
   const viewingRoom = viewingRoomId!=null ? rooms.find(r => String(r.id)===viewingRoomId) : null;
 
   // live: one refresher for everything other people can change
@@ -359,7 +361,7 @@ export default function App() {
   const allowed = (r, p) => { const s0 = p.split("/").filter(Boolean)[0]; return s0==="profile" || NAV[r].some(([id]) => id===s0); };
   const goPage = (p) => navigate("/"+p);
   const openClub = (name) => navigate("/clubs/"+enc(name));
-  const openRoomDetail = (room) => navigate("/find/rooms/"+enc(room.id));
+  const openRoomDetail = (room) => navigate((role==="admin" ? "/rooms/" : "/find/rooms/")+enc(room.id));
   const messagePerson = (person) => { startChat(person); navigate("/messages"); };
 
   // Entering the app after login/signup or after restoring a saved session.
@@ -433,10 +435,10 @@ export default function App() {
         <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfId={selfId} onBack={()=>back("/clubs")} onMessagePerson={messagePerson} />
       ) : viewingRoomId!=null ? (
         viewingRoom
-          ? <RoomDetail room={viewingRoom} onBack={()=>back("/find")} onBook={role==="general" ? undefined : setOpenRoom}
+          ? <RoomDetail room={viewingRoom} onBack={()=>back(role==="admin" ? "/rooms" : "/find")} onBook={role==="general" ? undefined : setOpenRoom}
               role={role} orgs={leaderOrgs} orgIds={orgIds} />
           : <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"24px", fontWeight:600 }}>
-              {roomsLoading ? "Loading room…" : <>Room not found. <button onClick={()=>navigate("/find")} style={{ color:"var(--link)", fontWeight:700 }}>Back to search</button></>}
+              {roomsLoading ? "Loading room…" : <>Room not found. <button onClick={()=>navigate(role==="admin" ? "/rooms" : "/find")} style={{ color:"var(--link)", fontWeight:700 }}>{role==="admin" ? "Back to rooms" : "Back to search"}</button></>}
             </main>
       ) : (
         <>
@@ -446,7 +448,7 @@ export default function App() {
           {role==="leader" && page==="requests" && !dataLoading && <MyRequests onCancel={cancelRequest} clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
           {role==="admin" && page==="approvals" && !dataLoading && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
           {role==="admin" && page==="verifications" && !dataLoading && <Verifications items={verifs} onApprove={approveVerif} onReject={rejectVerif} onOpenClub={openClub} />}
-          {role==="admin" && page==="rooms" && <RoomsAdmin rooms={rooms} requests={requests} loading={roomsLoading} />}
+          {role==="admin" && page==="rooms" && <RoomsAdmin rooms={rooms} requests={requests} loading={roomsLoading} onView={openRoomDetail} />}
           {role==="admin" && page==="analytics" && <Analytics />}
           {role==="admin" && page==="export" && <Export25Live />}
           {role==="venue" && page==="rooms" && <VenueRooms requests={requests} onOpenClub={openClub} />}
@@ -459,7 +461,7 @@ export default function App() {
           {page==="messages" && <Messages threads={threads} onSend={sendMessage} onStartChat={startChat}
             activeId={activeThread} setActiveId={setActiveThread} selfId={selfId} onSearchPeople={searchPeople} unreadMap={unreadMap} />}
           {page==="map" && <CampusMapPage rooms={rooms} loading={roomsLoading}
-            onView={role==="leader" || role==="general" ? openRoomDetail : undefined} onBook={role==="leader" ? setOpenRoom : undefined} />}
+            onView={role==="leader" || role==="general" || role==="admin" ? openRoomDetail : undefined} onBook={role==="leader" ? setOpenRoom : undefined} />}
         </>
       )}
 
