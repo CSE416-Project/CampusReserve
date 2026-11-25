@@ -51,22 +51,11 @@ export function prefillFor(slots) {
   return { date: days[0].date, from: days[0].from, to: days[0].to, days };
 }
 
-// Shortcuts for picking days. They continue from `after` (the latest day already picked, not included);
-// with no `after` they start from today (`today` included).
-export function nextWeekdays(today, after, count = 5) {
-  const out = []; let k = after ? addDays(after, 1) : today;
-  while (out.length < count) { const dow = parseDay(k).getDay(); if (dow !== 0 && dow !== 6) out.push(k); k = addDays(k, 1); }
-  return out;
-}
-export function nextWeekend(today, after) {
-  let k = after ? addDays(after, 1) : today;
-  if (after && [0, 6].includes(parseDay(after).getDay())) while (parseDay(k).getDay() !== 1) k = addDays(k, 1);   // latest day is a weekend day: use the next weekend
-  while (![0, 6].includes(parseDay(k).getDay())) k = addDays(k, 1);              // the first Saturday or Sunday
-  return parseDay(k).getDay() === 6 ? [k, addDays(k, 1)] : [k];
-}
-// Each day again for the next few weeks ("every Tuesday for 4 weeks").
-export function repeatWeekly(dates, weeks = 4) {
+// Every picked day again each week, up to and including `until` ("every Tuesday until finals").
+// Only days that are really added are returned, in order. Capped at a year out.
+export const MAX_REPEAT_DAYS = 366;
+export function repeatUntil(dates, until) {
   const out = new Set(dates);
-  for (const d of dates) for (let i = 1; i < weeks; i++) out.add(addDays(d, 7 * i));
+  for (const d of dates) for (let k = addDays(d, 7); k <= until && out.size < MAX_REPEAT_DAYS; k = addDays(k, 7)) out.add(k);
   return [...out].sort();
 }

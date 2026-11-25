@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { addDays, dayKey, fmtDay, fmtDayLong, nextWeekdays, nextWeekend, parseDay, repeatWeekly } from '../availability.js';
+import { addDays, dayKey, fmtDay, fmtDayLong, parseDay, repeatUntil } from '../availability.js';
 
 const DOW = ["S", "M", "T", "W", "T", "F", "S"];
-const short = k => parseDay(k).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const ghost = { padding: "5px 10px", borderRadius: 999, fontSize: 13, fontWeight: 600, border: "1.5px solid var(--ink)", background: "var(--card)", color: "var(--ink)" };
 
 // A small month calendar where you can pick as many days as you like.
@@ -12,6 +11,8 @@ export default function MultiDayPicker({ value, onChange, min }) {
   const first = value[0] ? parseDay(value[0]) : parseDay(min);
   const [view, setView] = useState({ y: first.getFullYear(), m: first.getMonth() });
   const [focusKey, setFocusKey] = useState(null);     // the one day that is in the Tab order (arrow keys move it)
+  const [repeat, setRepeat] = useState(false);     // the "repeat weekly until" panel
+  const [until, setUntil] = useState("");
   const refs = useRef({});
   const moved = useRef(false);
 
@@ -83,11 +84,27 @@ export default function MultiDayPicker({ value, onChange, min }) {
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-        <button type="button" onClick={() => addDays_(nextWeekdays(min, last))} style={ghost}>{last ? `+ 5 weekdays after ${short(last)}` : "+ Next 5 weekdays"}</button>
-        <button type="button" onClick={() => addDays_(nextWeekend(min, last))} style={ghost}>{last ? `+ Weekend after ${short(last)}` : "+ Next weekend"}</button>
-        {value.length > 0 && <button type="button" onClick={() => addDays_(repeatWeekly(value, 4))} style={ghost}
-          title="Adds the same weekdays for the next 3 weeks">↻ Repeat weekly for 4 weeks</button>}
+        {value.length > 0 && <button type="button" onClick={() => setRepeat(r => !r)} aria-expanded={repeat} style={ghost}>↻ Repeat weekly until…</button>}
       </div>
+
+      {repeat && value.length > 0 && (() => {
+        const more = until > last ? repeatUntil(value, until).length - value.length : 0;
+        return (
+          <div style={{ marginTop: 8, padding: 10, border: "1.5px solid var(--ink)", borderRadius: 10, background: "var(--paper)" }}>
+            <label htmlFor="repeat-until" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-soft)" }}>
+              Repeat {value.length === 1 ? "this day" : "each selected day"} every week until
+            </label>
+            <input id="repeat-until" type="date" value={until} min={addDays(last, 1)} max={addDays(last, 365)} onChange={e => setUntil(e.target.value)}
+              style={{ width: "100%", margin: "6px 0 8px", padding: "9px 8px", fontSize: 14.5, border: "2px solid var(--ink)", borderRadius: 8, background: "var(--card)", outline: "none" }} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button type="button" disabled={more < 1} onClick={() => { addDays_(repeatUntil(value, until)); setRepeat(false); }}
+                style={{ padding: "7px 12px", borderRadius: 8, fontSize: 13.5, fontWeight: 700, color: "var(--ink)", border: "2px solid var(--ink)", background: more > 0 ? "var(--blue)" : "var(--paper)", opacity: more > 0 ? 1 : 0.5 }}>
+                {more > 0 ? `Add ${more} more day${more === 1 ? "" : "s"}` : "Pick an end date"}</button>
+              <button type="button" onClick={() => setRepeat(false)} style={{ fontSize: 13, fontWeight: 600, color: "var(--link)" }}>Cancel</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {value.length > 0 ? (
         <div style={{ marginTop: 10 }}>
