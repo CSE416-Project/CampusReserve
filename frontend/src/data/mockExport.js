@@ -17,7 +17,8 @@ const nice = d => `${d.getHours() % 12 || 12}:${p2(d.getMinutes())} ${d.getHours
 function booking(id, name, org, room, roomId, dayOffset, from, hours, extra = {}) {
   const start = new Date(); start.setDate(start.getDate() + dayOffset); start.setHours(from, 0, 0, 0);
   const end = new Date(start.getTime() + hours * 3600000);
-  return { id, name, org, room, roomId, start, end, attendance: 30, state: "ready", batch: null, exportedAt: null, cancelHandled: false, ...extra };
+  return { id, name, org, room, roomId, start, end, attendance: 30, state: "ready", batch: null, exportedAt: null, cancelHandled: false,
+    description: `${name}, hosted by ${org}.`, requester: "Alex Rivera", email: "alex.rivera@campus.edu", advisor: "", coHosts: [], yes: ["Food"], ...extra };
 }
 
 const hoursAgo = h => new Date(Date.now() - h * 3600000);
@@ -33,10 +34,19 @@ let bookings = [
 ];
 const problemsOf = b => (b.end - b.start >= 24 * 3600000 ? ["Longer than 24 hours: 25Live's CSV import can't take it. Enter this one in 25Live by hand."] : []);
 const warningsOf = b => (b.roomId ? [] : [`${b.room} has no 25Live ID, so its name is used: it must match the 25Live location name exactly.`]);
+const QUESTIONS = ["Selling", "Food", "A/V", "Special setup", "Art/crafts", "Minors", "Guest speaker", "Photo/video",
+  "Live performance", "DJ", "Electrical", "Photo booth", "Special lighting"];
+const detailsOf = b => ({
+  event_id: `CSV-${b.id}`, event_type: "Meeting", description: b.description, requester_name: b.requester,
+  requester_email: b.email, organization: b.org, co_hosts: b.coHosts, program_advisor: b.advisor,
+  expected_attendance: b.attendance, setup_minutes: 15, cleanup_minutes: 15,
+  questions: QUESTIONS.map(name => ({ name, answer: b.yes.includes(name) })),
+});
 const item = b => ({
   id: b.id, event_name: b.name, organization: b.org, room: b.room,
   date: `${DOW[b.start.getDay()]} ${MON[b.start.getMonth()]} ${b.start.getDate()}`,
   time: `${nice(b.start)}\u2013${nice(b.end)}`, problems: problemsOf(b), warnings: warningsOf(b),
+  details: detailsOf(b), cancelled: b.state === "cancelled", in_25live: b.state === "synced",
 });
 
 const cell = v => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
@@ -44,7 +54,8 @@ function csvFor(list) {
   const rows = list.map(b => {
     const v = {
       EVENT_ID: b.id, EVENT_NAME: b.name.slice(0, 40), EVENT_TITLE: b.name,
-      INTERNAL_NOTES: `CampusReserve request ${b.id}. Organization: ${b.org}.`,
+      INTERNAL_NOTES: `CampusReserve request ${b.id}. Organization: ${b.org}. Requested by: ${b.requester} <${b.email}>.`,
+      DESCRIPTION: b.description,
       EVENT_TYPE: "Meeting", PRIMARY_ORGANIZATION: b.org, EXP_HEADCOUNT: String(b.attendance),
       PROFILE_ID: `P-${b.id}`, START_TIME: clock(b.start), END_TIME: clock(b.end),
       ADHOC_DATES: `${b.start.getFullYear()}-${p2(b.start.getMonth() + 1)}-${p2(b.start.getDate())}`,
@@ -61,14 +72,25 @@ const inBatch = id => bookings.filter(b => b.batch === id);
 const fileName = () => { const d = new Date(); return `25live-import-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.csv`; };
 let batchCount = 1;
 
+// The real server looks for each booking in 25Live itself. In the demo, a downloaded booking
+// "shows up in 25Live" a few seconds after it was downloaded, to show what that looks like.
+const DEMO_UPLOAD_DELAY_MS = 8000;
+function findUploads() {
+  bookings.forEach(b => {
+    if (b.state === "exported" && b.exportedAt && Date.now() - b.exportedAt.getTime() > DEMO_UPLOAD_DELAY_MS) b.state = "synced";
+  });
+}
+
 export function exportPreview() {
+  findUploads();
   const queue = bookings.filter(b => b.state === "ready");
   const ids = [...new Set(bookings.filter(b => b.batch).map(b => b.batch))];
   const batches = ids.map(id => {
     const list = inBatch(id);
-    return { id, exported_at: list[0].exportedAt.toISOString(), count: list.length, confirmed: list.filter(b => b.state === "synced").length };
+    return { id, exported_at: list[0].exportedAt.toISOString(), count: list.length, in_25live: list.filter(b => b.state === "synced").length, bookings: list.map(item) };
   }).sort((a, b) => b.exported_at.localeCompare(a.exported_at));
   return wait({
+    upload_check_ok: true,
     ready: queue.filter(b => !problemsOf(b).length).map(item),
     skipped: queue.filter(b => problemsOf(b).length).map(item),
     cancellations: bookings.filter(b => b.state === "cancelled" && b.batch && !b.cancelHandled)
@@ -79,6 +101,7 @@ export function exportPreview() {
 }
 
 export function exportNew() {
+  findUploads();
   const take = bookings.filter(b => b.state === "ready" && !problemsOf(b).length);
   if (!take.length) return fail("Nothing new to export: every approved booking is already in a file.");
   const id = `demo-batch-${++batchCount}`;
@@ -93,15 +116,10 @@ export function exportBatch(id) {
     : fail("Every booking in this export has since been cancelled.");
 }
 
-export function confirmBatch(id) {
-  const todo = inBatch(id).filter(b => b.state === "exported");
-  todo.forEach(b => { b.state = "synced"; });
-  return wait({ confirmed: todo.length });
-}
-
 export function undoBatch(id) {
+  findUploads();
   const todo = inBatch(id).filter(b => b.state !== "synced");
-  if (!todo.length) return fail("This export is already confirmed as uploaded.");
+  if (!todo.length) return fail("Every booking in this export is already in 25Live.");
   todo.forEach(b => { b.batch = null; b.exportedAt = null; if (b.state === "exported") b.state = "ready"; });
   return wait({ released: todo.length });
 }

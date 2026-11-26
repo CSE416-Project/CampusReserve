@@ -46,7 +46,7 @@ EVENT_QUESTIONS: dict[str, str] = {
 }
 
 
-# Short names, for notes and the details sheet (the long wording above is 25Live's own).
+# Short names, for the export notes (the long wording above is 25Live's own).
 QUESTION_NAMES: dict[str, str] = {
     "selling": "Selling", "food": "Food", "av": "A/V", "special_setup": "Special setup",
     "art_crafts": "Art/crafts", "minors": "Minors", "guest_speaker": "Guest speaker",

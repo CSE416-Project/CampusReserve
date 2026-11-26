@@ -15,6 +15,10 @@ Guidelines" (the events.csv service):
 Which bookings are already exported is tracked on the request itself
 (Request.exported_at / export_batch_id), so each download only holds new ones.
 
+Whether a booking is actually IN 25Live is not something an admin tells us: we
+read 25Live's availability data (services/live25.py) and look for the event
+(see "upload detection" below). A match marks the request SyncStatus.SYNCED.
+
 Settings (environment variables), because these must match 25Live exactly:
     LIVE25_EVENT_TYPE            fallback only; each request's own event type (chosen on the booking form) is used
     LIVE25_PRIMARY_ORGANIZATION  default: the requesting club's name
@@ -23,7 +27,7 @@ Settings (environment variables), because these must match 25Live exactly:
                                  {"food": "Serving Food", "minors": "Minors Present"}.
                                  Off by default: the template can't have extra columns, and
                                  a name 25Live doesn't know may be dropped. Without it, the
-                                 answers go in INTERNAL_NOTES (and the details sheet).
+                                 answers go in INTERNAL_NOTES (every question, Yes or No).
 """
 
 from __future__ import annotations
@@ -40,8 +44,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, selectinload
 
 from models.room import Request, RequestStatus, SyncStatus
+from services import live25
 from services.request_details import QUESTION_NAMES, EVENT_QUESTIONS, yes_names
-from services.room_merge import campus_now
+from services.room_merge import campus_now, to_local_naive
 
 # Template columns, in order. Don't rename or reorder: 25Live rejects the file.
 HEADERS = [
@@ -59,6 +64,10 @@ USE_ADHOC_DATE = True
 EVENT_NAME_LIMIT = 40    # 25Live's limit for EVENT_NAME
 EVENT_TITLE_LIMIT = 120  # ...and EVENT_TITLE
 CANCEL_WINDOW_DAYS = 14  # how long a cancelled-after-export booking stays on the to-do list
+UPLOAD_CHECK_LOOKBACK_DAYS = 30  # bookings that ended longer ago than this are no longer checked
+TIME_TOLERANCE = dt.timedelta(minutes=1)
+# 25Live event states that mean the event isn't really there.
+GONE_STATES = {"Cancelled", "Deleted"}
 
 
 def event_type(req: Request | None = None) -> str:
@@ -150,7 +159,8 @@ def make_row(req: Request) -> ExportRow:
     answers = req.event_questions or {}
     yes = yes_names(answers)
     if answers:  # {} = never asked (a request made before these questions existed)
-        extra += f" Event questions, Yes: {', '.join(yes)}." if yes else " Event questions: all No."
+        extra += " Event questions: " + "; ".join(
+            f"{name}: {'Yes' if answers.get(k) else 'No'}" for k, name in QUESTION_NAMES.items()) + "."
     notes = _clean(f"CampusReserve request {req.id}. Organization: {org_name}.{who}{extra}")
 
     # The template has no column for these, so tell the admin what to add in 25Live.
@@ -194,43 +204,13 @@ def build_csv(rows: list[ExportRow]) -> str:
     return out.getvalue()  # sent as plain UTF-8: no byte-order mark
 
 
-# ------------------------------------------------------------------ details sheet
-
-DETAIL_HEADERS = (["REQUEST_ID", "EVENT_NAME", "ORGANIZATION", "CO_HOSTS", "ROOM", "DATE", "START_TIME",
-                   "END_TIME", "SETUP_MINUTES", "CLEANUP_MINUTES", "EXPECTED_ATTENDANCE", "DESCRIPTION",
-                   "REQUESTER", "REQUESTER_EMAIL", "PROGRAM_ADVISOR"]
-                  + [name.upper().replace("/", "_").replace(" ", "_") for name in QUESTION_NAMES.values()])
-
-
-def build_details_csv(reqs: list[Request]) -> str:
-    """A companion sheet for admins (NOT for upload to 25Live): one row per request, one
-    Yes/No column per event question, so it can be sorted and filtered (e.g. everyone serving
-    food). A question never asked is left blank. Keeps the real import file within 25Live's template."""
-    out = io.StringIO()
-    writer = csv.writer(out, lineterminator="\r\n")
-    writer.writerow(DETAIL_HEADERS)
-    for r in reqs:
-        answers = r.event_questions or {}
-        writer.writerow([
-            str(r.id), r.event_name, r.organization.name if r.organization else "",
-            "; ".join(o.name for o in r.co_hosts), r.room.name if r.room else "",
-            r.start_time.date().isoformat(), r.start_time.strftime("%H:%M"), r.end_time.strftime("%H:%M"),
-            _minutes(r.setup_start, r.start_time) or "0",
-            (_minutes(r.end_time, r.cleanup_end) if r.cleanup_end else "") or "0",
-            r.expected_attendance or "", r.description or "",
-            r.requester.name if r.requester else "", r.requester.email if r.requester else "",
-            r.program_advisor or "",
-            *[("Yes" if answers.get(k) else "No") if answers else "" for k in QUESTION_NAMES],
-        ])
-    return out.getvalue()
-
-
 # ------------------------------------------------------------------ database
 
 def _base_query(db: Session):
     return db.query(Request).options(selectinload(Request.room),
                                      selectinload(Request.organization),
-                                     selectinload(Request.requester))
+                                     selectinload(Request.requester),
+                                     selectinload(Request.co_hosts))
 
 
 def eligible(db: Session, *, include_past: bool = False, lock: bool = False) -> list[Request]:
@@ -272,3 +252,101 @@ def pending_cancellations(db: Session) -> list[Request]:
                     Request.cancel_handled_at.is_(None),
                     or_(Request.updated_at.is_(None), Request.updated_at >= cutoff))
             .order_by(Request.start_time, Request.id).all())
+
+
+# ------------------------------------------------------------------ upload detection
+#
+# 25Live's public availability data doesn't include the event's id (our
+# "CSV-<request id>"), so we recognise an uploaded booking by what the CSV put
+# in 25Live: the same room, the same event start (and end), and the same name.
+# Cancelled/deleted 25Live events don't count. If an admin later renames or
+# moves the event in 25Live, it will no longer match.
+
+@dataclass(frozen=True)
+class Probe:
+    """What we look for in 25Live for one request (plain data, safe to pass between threads)."""
+    request_id: str
+    space_id: str
+    start: dt.datetime
+    end: dt.datetime
+    name: str
+
+
+def _norm(text) -> str:
+    return " ".join(str(text or "").casefold().split())
+
+
+def probe_for(req: Request) -> Probe | None:
+    """None if the room has no 25Live id: there is nothing to look it up by."""
+    ref = req.room.external_ref if req.room is not None else None
+    if not ref:
+        return None
+    return Probe(str(req.id), str(ref), to_local_naive(req.start_time), to_local_naive(req.end_time),
+                 req.event_name or "")
+
+
+def unchecked(db: Session) -> list[Probe]:
+    """Approved bookings not yet known to be in 25Live (recent or upcoming)."""
+    cutoff = campus_now() - dt.timedelta(days=UPLOAD_CHECK_LOOKBACK_DAYS)
+    reqs = (_base_query(db)
+            .filter(Request.status == RequestStatus.APPROVED,
+                    Request.sync_status != SyncStatus.SYNCED,
+                    Request.end_time >= cutoff)
+            .all())
+    return [p for p in (probe_for(r) for r in reqs) if p is not None]
+
+
+def is_in_25live(probe: Probe, bookings: list[dict]) -> bool:
+    """Is there a live 25Live event in this room that matches the probe?"""
+    names = {_norm(_clean(probe.name, EVENT_NAME_LIMIT)), _norm(_clean(probe.name, EVENT_TITLE_LIMIT))}
+    crosses_midnight = probe.end.date() != probe.start.date()
+    for b in bookings:
+        if b.get("kind") != "event" or b.get("state") in GONE_STATES:
+            continue
+        if b.get("space_id") != probe.space_id or b.get("event_start") is None:
+            continue
+        if abs(b["event_start"] - probe.start) > TIME_TOLERANCE:
+            continue
+        if not crosses_midnight and b.get("event_end") is not None \
+                and abs(b["event_end"] - probe.end) > TIME_TOLERANCE:
+            continue
+        got = _norm(b.get("name"))
+        if got in names or any(got.startswith(n) for n in names if n):
+            return True
+    return False
+
+
+def _windows(days: list[dt.date]) -> list[tuple[dt.date, dt.date]]:
+    """Group dates into runs that one 25Live availability request covers."""
+    out: list[tuple[dt.date, dt.date]] = []
+    for d in sorted(set(days)):
+        if out and (d - out[-1][0]).days < live25.COVERAGE_DAYS:
+            out[-1] = (out[-1][0], d)
+        else:
+            out.append((d, d))
+    return out
+
+
+async def fetch_25live_bookings(probes: list[Probe]) -> dict[str, list[dict]]:
+    """{space_id: bookings} covering every probe. Raises live25.Live25Error if 25Live can't be read."""
+    by_room: dict[str, list[dt.date]] = {}
+    for p in probes:
+        by_room.setdefault(p.space_id, []).append(p.start.date())
+    found: dict[str, list[dict]] = {}
+    for space_id, days in by_room.items():
+        found[space_id] = []
+        for first, last in _windows(days):
+            found[space_id] += await live25.get_bookings(space_id, first, last)
+    return found
+
+
+def apply_upload_check(db: Session, probes: list[Probe], found: dict[str, list[dict]]) -> int:
+    """Mark the probes that 25Live has as SYNCED. Returns how many were newly marked."""
+    ids = [p.request_id for p in probes if is_in_25live(p, found.get(p.space_id, []))]
+    if not ids:
+        return 0
+    reqs = db.query(Request).filter(Request.id.in_([uuid.UUID(i) for i in ids]), Request.sync_status != SyncStatus.SYNCED).all()
+    for req in reqs:
+        req.sync_status = SyncStatus.SYNCED
+        req.external_booking_ref = alien_uid(req)
+    return len(reqs)
