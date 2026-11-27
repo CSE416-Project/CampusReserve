@@ -9,12 +9,40 @@ import io
 import pytest
 
 from models.room import RequestStatus, SyncStatus
-from services import live25_csv
+from services import live25, live25_csv
 from services.room_merge import campus_now
 
 
 def parse(text: str) -> list[dict]:
     return list(csv.DictReader(io.StringIO(text)))
+
+
+@pytest.fixture()
+def in_25live(monkeypatch):
+    """The (fake) events 25Live currently has. Tests add to the list with `in_25live.append(...)`
+    or call `in_25live.error = True` to make 25Live unreachable. Keeps tests offline."""
+    class Events(list):
+        error = False
+
+    events = Events()
+
+    async def fake_get_bookings(space_id, start, end=None):
+        if events.error:
+            raise live25.Live25Error("down")
+        return [b for b in events if b["space_id"] == space_id]
+
+    monkeypatch.setattr(live25, "get_bookings", fake_get_bookings)
+    return events
+
+
+def event_for(req, **kw):
+    """The 25Live availability entry that uploading `req`'s CSV row would create."""
+    b = {"space_id": str(req.room.external_ref), "kind": "event", "state": "Confirmed",
+         "name": live25_csv._clean(req.event_name, live25_csv.EVENT_NAME_LIMIT),
+         "start": req.setup_start, "end": req.cleanup_end,
+         "event_start": req.start_time, "event_end": req.end_time, "expected_headcount": 20}
+    b.update(kw)
+    return b
 
 
 @pytest.fixture()
@@ -195,19 +223,101 @@ def test_undo_puts_a_batch_back_in_the_queue(client, auth, admin, approved, db):
     assert [i["id"] for i in ready] == [str(req.id)]
 
 
-def test_confirm_marks_bookings_as_in_25live(client, auth, admin, approved, db):
-    req = approved(10)
+# --------------------------------------------------------------------------- detecting uploads
+
+@pytest.fixture()
+def listed_room(make_room):
+    return make_room(name="Room 236", external_ref="48213")
+
+
+def test_booking_found_in_25live_is_marked_synced_and_leaves_the_queue(client, auth, admin, approved, listed_room, in_25live, db):
+    req = approved(10, in_room=listed_room)
+    other = approved(11, in_room=listed_room)
+    in_25live.append(event_for(req))
+
+    data = client.get("/admin/sync/export", headers=auth(admin)).json()
+    assert data["upload_check_ok"] is True
+    assert [i["id"] for i in data["ready"]] == [str(other.id)]
+    db.refresh(req)
+    assert req.sync_status == SyncStatus.SYNCED and req.external_booking_ref == f"CSV-{req.id}"
+    db.refresh(other)
+    assert other.sync_status == SyncStatus.NOT_SYNCED
+
+
+def test_downloaded_batch_shows_as_uploaded_once_25live_has_it(client, auth, admin, approved, listed_room, in_25live, db):
+    req = approved(10, in_room=listed_room)
     batch = client.post("/admin/sync/export", headers=auth(admin)).json()["batch_id"]
 
-    assert client.post(f"/admin/sync/batches/{batch}/confirm", headers=auth(admin)).json() == {"confirmed": 1}
+    before = client.get("/admin/sync/export", headers=auth(admin)).json()["batches"][0]
+    assert before["count"] == 1 and before["in_25live"] == 0        # downloaded, not uploaded yet
+
+    in_25live.append(event_for(req))                                  # the admin uploads the file
+    after = client.get("/admin/sync/export", headers=auth(admin)).json()["batches"][0]
+    assert after["in_25live"] == 1
+    assert client.post(f"/admin/sync/batches/{batch}/undo", headers=auth(admin)).status_code == 409
+
+
+def test_downloading_skips_bookings_25live_already_has(client, auth, admin, approved, listed_room, in_25live):
+    already, new = approved(10, in_room=listed_room), approved(11, in_room=listed_room)
+    in_25live.append(event_for(already))
+    body = client.post("/admin/sync/export", headers=auth(admin)).json()
+    assert [row["EVENT_ID"] for row in parse(body["csv"])] == [str(new.id)]
+
+
+@pytest.mark.parametrize("change", [
+    {"state": "Cancelled"},                                   # cancelled in 25Live: not there any more
+    {"state": "Deleted"},
+    {"kind": "closed"},                                       # a closure, not an event
+    {"name": "Some Other Event"},
+    {"space_id": "99999"},                                    # a different room
+    {"event_start": "+1h"},                                   # moved in 25Live
+])
+def test_events_that_do_not_match_are_not_counted(client, auth, admin, approved, listed_room, in_25live, db, change):
+    req = approved(10, in_room=listed_room)
+    if change.get("event_start") == "+1h":
+        change = {"event_start": req.start_time + dt.timedelta(hours=1)}
+    in_25live.append(event_for(req, **change))
+
+    ready = client.get("/admin/sync/export", headers=auth(admin)).json()["ready"]
+    assert [i["id"] for i in ready] == [str(req.id)]
+    db.refresh(req)
+    assert req.sync_status == SyncStatus.NOT_SYNCED
+
+
+def test_name_is_compared_the_way_the_csv_wrote_it(client, auth, admin, approved, listed_room, in_25live, db):
+    req = approved(10, in_room=listed_room, event_name="  Robotics | Demo Night  " + "x" * 60)
+    in_25live.append(event_for(req, name="robotics / demo night " + "x" * 18))   # cut to 40, different case
+    client.get("/admin/sync/export", headers=auth(admin))
     db.refresh(req)
     assert req.sync_status == SyncStatus.SYNCED
-    assert req.external_booking_ref == f"CSV-{req.id}"
 
-    assert client.post(f"/admin/sync/batches/{batch}/confirm", headers=auth(admin)).json() == {"confirmed": 0}
-    assert client.post(f"/admin/sync/batches/{batch}/undo", headers=auth(admin)).status_code == 409
-    batches = client.get("/admin/sync/export", headers=auth(admin)).json()["batches"]
-    assert batches[0]["count"] == 1 and batches[0]["confirmed"] == 1
+
+def test_if_25live_cannot_be_read_nothing_changes(client, auth, admin, approved, listed_room, in_25live, db):
+    req = approved(10, in_room=listed_room)
+    in_25live.append(event_for(req))
+    in_25live.error = True
+
+    data = client.get("/admin/sync/export", headers=auth(admin)).json()
+    assert data["upload_check_ok"] is False
+    assert [i["id"] for i in data["ready"]] == [str(req.id)]
+    db.refresh(req)
+    assert req.sync_status == SyncStatus.NOT_SYNCED
+    assert client.post("/admin/sync/export", headers=auth(admin)).status_code == 200   # downloading still works
+
+
+def test_rooms_without_a_25live_id_are_never_marked(client, auth, admin, approved, in_25live, db):
+    req = approved(10)                                                  # the default room has no external_ref
+    in_25live.append({"space_id": "None", "kind": "event", "state": "Confirmed", "name": req.event_name,
+                      "event_start": req.start_time, "event_end": req.end_time})
+    client.get("/admin/sync/export", headers=auth(admin))
+    db.refresh(req)
+    assert req.sync_status == SyncStatus.NOT_SYNCED
+
+
+def test_manual_confirm_endpoint_is_gone(client, auth, admin, approved):
+    approved(10)
+    batch = client.post("/admin/sync/export", headers=auth(admin)).json()["batch_id"]
+    assert client.post(f"/admin/sync/batches/{batch}/confirm", headers=auth(admin)).status_code in (404, 405)
 
 
 # --------------------------------------------------------------------------- cancellations
@@ -251,7 +361,7 @@ def test_event_details_go_into_the_25live_columns_and_notes(make_request, db, or
 
     assert list(row) == live25_csv.HEADERS                      # still exactly 25Live's template
     assert row["DESCRIPTION"] == "Open rehearsal. Pizza after."
-    for text in ("Dance Collective", "Dr. Smith", "Yes: Food, DJ"):
+    for text in ("Dance Collective", "Dr. Smith", "Food: Yes", "DJ: Yes", "Minors: No", "Selling: No"):
         assert text in row["INTERNAL_NOTES"]
     assert row["CUSTOM_ATTRIBUTES"] == ""                       # off unless configured
     assert any("Co-hosting" in w for w in made.warnings) and any("Food, DJ" in w for w in made.warnings)
@@ -272,12 +382,39 @@ def test_request_without_details_exports_as_before(make_request):
     assert made.warnings == [] or all("Event questions" not in w for w in made.warnings)
 
 
-def test_details_sheet_has_a_column_per_question(client, auth, admin, approved, db):
-    req = approved(23, description="Demo", event_questions={"food": True, "dj": False})
+def test_there_is_only_one_csv_to_download(client, auth, admin, approved):
+    approved(23)
     batch = client.post("/admin/sync/export", headers=auth(admin)).json()["batch_id"]
-    sheet = client.get(f"/admin/sync/batches/{batch}/details", headers=auth(admin)).json()
-    row = parse(sheet["csv"])[0]
-    assert row["REQUEST_ID"] == str(req.id) and row["DESCRIPTION"] == "Demo"
-    assert row["FOOD"] == "Yes" and row["DJ"] == "No"
-    assert "details" in sheet["filename"]
-    assert client.get("/admin/sync/batches/nope/details", headers=auth(admin)).status_code == 404
+    assert client.get(f"/admin/sync/batches/{batch}/csv", headers=auth(admin)).status_code == 200
+    assert client.get(f"/admin/sync/batches/{batch}/details", headers=auth(admin)).status_code in (404, 405)
+
+
+# --------------------------------------------------------------------------- details on screen
+
+def test_ready_bookings_carry_every_booking_form_detail(client, auth, admin, approved, db):
+    req = approved(24, description="Open rehearsal.\nPizza after.", program_advisor="Dr. Smith",
+                   event_questions={"food": True, "dj": False})
+    item = client.get("/admin/sync/export", headers=auth(admin)).json()["ready"][0]
+    d = item["details"]
+    assert item["id"] == str(req.id) and d["event_id"] == f"CSV-{req.id}"
+    assert d["description"] == "Open rehearsal.\nPizza after." and d["program_advisor"] == "Dr. Smith"
+    assert d["requester_email"] == req.requester.email and d["requester_name"] == req.requester.name
+    answers = {q["name"]: q["answer"] for q in d["questions"]}
+    assert answers["Food"] is True and answers["DJ"] is False and len(answers) == 13
+
+
+def test_questions_never_asked_are_null_not_no(client, auth, admin, approved):
+    approved(25)
+    d = client.get("/admin/sync/export", headers=auth(admin)).json()["ready"][0]["details"]
+    assert all(q["answer"] is None for q in d["questions"])
+
+
+def test_downloaded_bookings_keep_their_details(client, auth, admin, approved, db):
+    req = approved(26, description="Keep me", event_questions={"food": True})
+    client.post("/admin/sync/export", headers=auth(admin))
+    data = client.get("/admin/sync/export", headers=auth(admin)).json()
+    assert data["ready"] == []
+    booked = data["batches"][0]["bookings"]
+    assert [b["id"] for b in booked] == [str(req.id)]
+    assert booked[0]["details"]["description"] == "Keep me" and booked[0]["cancelled"] is False
+
