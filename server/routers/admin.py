@@ -22,10 +22,12 @@ from models.room import Request, RequestStatus, Room, RoomClosure, SyncStatus
 from models.user import User, UserRole
 from routers.requests import CheckOut, RequestOut, SyncOut, request_out
 from services import booking, live25_csv, room_features
+from services.live25 import Live25Error
 from services.live25_sync import get_provider, manual_steps
 from services.notify import notify
 from services.pagination import Page, paged
 from services.permissions import admins, as_uuid, can_manage_venue
+from services.request_details import QUESTION_NAMES
 from services.request_flow import check_booking, load_25live_rooms
 from services.room_import import ensure_room, find_room, import_rooms
 from services.room_merge import campus_now, to_local_naive
@@ -169,6 +171,27 @@ def confirm_sync(
 # 25Live CSV export (read-only 25Live: download, then upload in the Data Import Tool)
 # =============================================================================
 
+class ExportQuestion(BaseModel):
+    name: str
+    answer: bool | None        # None: this request was made before the question existed
+
+
+class ExportDetails(BaseModel):
+    """Everything the booking form collected, for the admin to read (the CSV carries it in INTERNAL_NOTES)."""
+    event_id: str              # what 25Live calls it: CSV-<request id>
+    event_type: str
+    description: str
+    requester_name: str
+    requester_email: str
+    organization: str
+    co_hosts: list[str]
+    program_advisor: str
+    expected_attendance: int | None
+    setup_minutes: int
+    cleanup_minutes: int
+    questions: list[ExportQuestion]
+
+
 class ExportItem(BaseModel):
     id: str
     event_name: str
@@ -178,6 +201,9 @@ class ExportItem(BaseModel):
     time: str
     problems: list[str] = []   # can't be exported until fixed
     warnings: list[str] = []   # exported, but worth checking in 25Live
+    details: ExportDetails | None = None
+    cancelled: bool = False    # cancelled after it was downloaded
+    in_25live: bool = False    # found in 25Live
 
 
 class CancelItem(BaseModel):
@@ -194,7 +220,8 @@ class ExportBatchOut(BaseModel):
     id: str
     exported_at: dt.datetime
     count: int                 # bookings in the file
-    confirmed: int             # of those, how many an admin marked as uploaded
+    in_25live: int             # of those, how many we found in 25Live
+    bookings: list[ExportItem] = []   # what's in the file, with details
 
 
 class ExportSettings(BaseModel):
@@ -203,6 +230,7 @@ class ExportSettings(BaseModel):
 
 
 class ExportPreview(BaseModel):
+    upload_check_ok: bool = True   # False: 25Live couldn't be read, so uploads may not be up to date
     ready: list[ExportItem]
     skipped: list[ExportItem]
     cancellations: list[CancelItem]
@@ -223,13 +251,39 @@ def _when(req: Request) -> tuple[str, str]:
     return f"{s:%a %b} {s.day}", f"{s:%I:%M %p}".lstrip("0") + "\u2013" + f"{e:%I:%M %p}".lstrip("0")
 
 
+def _details(req: Request) -> ExportDetails:
+    answers = req.event_questions or {}
+    return ExportDetails(
+        event_id=live25_csv.alien_uid(req), event_type=live25_csv.event_type(req),
+        description=req.description or "",
+        requester_name=req.requester.name if req.requester else "",
+        requester_email=req.requester.email if req.requester else "",
+        organization=req.organization.name if req.organization else "",
+        co_hosts=[o.name for o in req.co_hosts], program_advisor=req.program_advisor or "",
+        expected_attendance=req.expected_attendance,
+        setup_minutes=int(live25_csv._minutes(req.setup_start, req.start_time) or 0),
+        cleanup_minutes=int(live25_csv._minutes(req.end_time, req.cleanup_end) or 0) if req.cleanup_end else 0,
+        questions=[ExportQuestion(name=name, answer=(bool(answers.get(k)) if answers else None))
+                   for k, name in QUESTION_NAMES.items()],
+    )
+
+
 def _export_item(row: live25_csv.ExportRow) -> ExportItem:
     req = row.request
     date, time = _when(req)
     return ExportItem(id=str(req.id), event_name=req.event_name,
                       organization=req.organization.name if req.organization else "",
                       room=req.room.name if req.room else "", date=date, time=time,
-                      problems=row.problems, warnings=row.warnings)
+                      problems=row.problems, warnings=row.warnings, details=_details(req))
+
+
+def _batch_item(req: Request) -> ExportItem:
+    date, time = _when(req)
+    return ExportItem(id=str(req.id), event_name=req.event_name,
+                      organization=req.organization.name if req.organization else "",
+                      room=req.room.name if req.room else "", date=date, time=time,
+                      details=_details(req), cancelled=req.status == RequestStatus.CANCELLED,
+                      in_25live=req.sync_status == SyncStatus.SYNCED)
 
 
 def _cancel_item(req: Request) -> CancelItem:
@@ -248,14 +302,34 @@ def _csv_filename() -> str:
     return f"25live-import-{campus_now():%Y%m%d-%H%M}.csv"
 
 
+async def refresh_uploads(db: Session) -> bool:
+    """Look in 25Live for approved bookings we haven't found there yet, and mark the ones
+    it has as synced. Returns False if 25Live couldn't be read (nothing is changed then)."""
+    probes = await run_in_threadpool(live25_csv.unchecked, db)
+    if not probes:
+        return True
+    try:
+        found = await live25_csv.fetch_25live_bookings(probes)
+    except Live25Error:
+        return False
+    await run_in_threadpool(lambda: (live25_csv.apply_upload_check(db, probes, found), db.commit()))
+    return True
+
+
 @router.get("/sync/export", response_model=ExportPreview)
-def export_preview(
+async def export_preview(
     include_past: bool = False,
     db: Session = Depends(get_db),
     user: User = Security(get_current_user, scopes=["sync:external-bookings"]),
 ):
     """What the next CSV download would hold, plus recent downloads and the
-    bookings cancelled after they were downloaded (to cancel in 25Live by hand)."""
+    bookings cancelled after they were downloaded (to cancel in 25Live by hand).
+    Checks 25Live first, so bookings it already has are not offered again."""
+    checked = await refresh_uploads(db)
+    return await run_in_threadpool(_export_preview, db, include_past, checked)
+
+
+def _export_preview(db: Session, include_past: bool, checked: bool) -> ExportPreview:
     rows = [live25_csv.make_row(r) for r in live25_csv.eligible(db, include_past=include_past)]
     cutoff = dt.datetime.utcnow() - dt.timedelta(days=30)
     batch_rows = (
@@ -266,11 +340,18 @@ def export_preview(
         .order_by(func.min(Request.exported_at).desc())
         .limit(15).all()
     )
+    in_batch: dict[str, list[ExportItem]] = {}
+    batch_ids = [b for b, *_ in batch_rows]
+    if batch_ids:
+        for req in (live25_csv._base_query(db).filter(Request.export_batch_id.in_(batch_ids))
+                    .order_by(Request.start_time, Request.id).all()):
+            in_batch.setdefault(req.export_batch_id, []).append(_batch_item(req))
     return ExportPreview(
+        upload_check_ok=checked,
         ready=[_export_item(r) for r in rows if not r.problems],
         skipped=[_export_item(r) for r in rows if r.problems],
         cancellations=[_cancel_item(r) for r in live25_csv.pending_cancellations(db)],
-        batches=[ExportBatchOut(id=b, exported_at=_utc(at), count=n, confirmed=c)
+        batches=[ExportBatchOut(id=b, exported_at=_utc(at), count=n, in_25live=c, bookings=in_batch.get(b, []))
                  for b, at, n, c in batch_rows],
         settings=ExportSettings(event_type=live25_csv.event_type(),
                                 primary_organization=live25_csv.primary_organization_override()),
@@ -278,15 +359,20 @@ def export_preview(
 
 
 @router.post("/sync/export", response_model=ExportFile)
-def export_new(
+async def export_new(
     include_past: bool = False,
     db: Session = Depends(get_db),
     user: User = Security(get_current_user, scopes=["sync:external-bookings"]),
 ):
-    """Build the CSV of every approved booking that hasn't been downloaded yet,
-    and remember that they have been, so the next download skips them. If the
-    upload goes wrong, GET /sync/batches/{id}/csv re-downloads it and
-    POST /sync/batches/{id}/undo puts the bookings back in the queue."""
+    """Build the CSV of every approved booking that hasn't been downloaded yet
+    (and that 25Live doesn't already have), and remember that they have been, so
+    the next download skips them. If the upload goes wrong, GET /sync/batches/{id}/csv
+    re-downloads it and POST /sync/batches/{id}/undo puts the bookings back in the queue."""
+    await refresh_uploads(db)
+    return await run_in_threadpool(_export_new, db, include_past)
+
+
+def _export_new(db: Session, include_past: bool) -> ExportFile:
     rows = [live25_csv.make_row(r) for r in live25_csv.eligible(db, include_past=include_past, lock=True)]
     good = [r for r in rows if not r.problems]
     if not good:
@@ -324,22 +410,6 @@ def redownload_batch(
                       csv=live25_csv.build_csv(good), skipped=[_export_item(r) for r in rows if r.problems])
 
 
-@router.get("/sync/batches/{batch_id}/details", response_model=ExportFile)
-def batch_details_sheet(
-    batch_id: str,
-    db: Session = Depends(get_db),
-    user: User = Security(get_current_user, scopes=["sync:external-bookings"]),
-):
-    """A companion sheet for the admin (not for upload to 25Live): the export's requests with
-    every event question as its own Yes/No column. Bookings cancelled since are left out."""
-    reqs = [r for r in _batch_or_404(db, batch_id) if r.status == RequestStatus.APPROVED]
-    if not reqs:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="Every booking in this export has since been cancelled.")
-    return ExportFile(batch_id=batch_id, filename=_csv_filename().replace("25live-import", "25live-details"),
-                      count=len(reqs), csv=live25_csv.build_details_csv(reqs), skipped=[])
-
-
 @router.post("/sync/batches/{batch_id}/undo")
 def undo_batch(
     batch_id: str,
@@ -347,34 +417,17 @@ def undo_batch(
     user: User = Security(get_current_user, scopes=["sync:external-bookings"]),
 ):
     """The file was never uploaded: put its bookings back in the queue for the
-    next download. Bookings already confirmed as uploaded stay confirmed."""
+    next download. Bookings we've already found in 25Live stay as they are."""
     reqs = _batch_or_404(db, batch_id, lock=True)
     released = [r for r in reqs if r.sync_status != SyncStatus.SYNCED]
     if not released:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="This export is already confirmed as uploaded.")
+                            detail="Every booking in this export is already in 25Live.")
     for r in released:
         r.exported_at = None
         r.export_batch_id = None
     db.commit()
     return {"released": len(released)}
-
-
-@router.post("/sync/batches/{batch_id}/confirm")
-def confirm_batch(
-    batch_id: str,
-    db: Session = Depends(get_db),
-    user: User = Security(get_current_user, scopes=["sync:external-bookings"]),
-):
-    """The file was uploaded in 25Live: mark its approved bookings as synced
-    (25Live now has them), recording the id 25Live gave them (CSV-<request id>)."""
-    reqs = _batch_or_404(db, batch_id, lock=True)
-    todo = [r for r in reqs if r.status == RequestStatus.APPROVED and r.sync_status != SyncStatus.SYNCED]
-    for r in todo:
-        r.sync_status = SyncStatus.SYNCED
-        r.external_booking_ref = live25_csv.alien_uid(r)
-    db.commit()
-    return {"confirmed": len(todo)}
 
 
 @router.post("/sync/cancellations/{request_id}/done")
