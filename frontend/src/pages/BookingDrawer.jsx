@@ -1,16 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import { slotState } from '../data/mock.js';
-import { LIVE, roomSchedule, busyFromSchedule, dayKeyOf, rememberedAdvisor, rememberAdvisor } from '../api.js';
+import { LIVE, roomSchedule, roomParts, busyFromSchedule, dayKeyOf, rememberedAdvisor, rememberAdvisor } from '../api.js';
 import { QUESTION_LABELS, emptyDetails, detailsBlocker, detailsPayload } from '../data/eventDetails.js';
 import EventDetailsForm from '../components/EventDetailsForm.jsx';
 import Pill from '../components/Pill.jsx';
 import WaitlistOffer from '../components/WaitlistOffer.jsx';
 import TestBookingNotice, { TEST_BOOKINGS_ONLY, LIVE25_URL } from '../components/TestBookingNotice.jsx';
 import BookingCalendar from '../components/BookingCalendar.jsx';
+import SpaceDayGrid from '../components/SpaceDayGrid.jsx';
 import WeekCalendar, { CalendarLegend, startOfWeek } from '../components/WeekCalendar.jsx';
-import { useRoomWeek } from '../calendarData.js';
+import { useRoomWeek, columnsFor, spaceLabel } from '../calendarData.js';
 import useDialog from '../a11y/useDialog.js';
-import { useScrollLock, useIsCompact } from '../useMedia.js';
+import { useIsCompact } from '../useMedia.js';
 
 const MIN = 360, MAX = 1410, STEP = 15; // bookable window: 6:00 AM to 11:30 PM
 const DOW = ["S","M","T","W","T","F","S"];
@@ -25,7 +26,36 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const timeBox = { padding:"9px 10px", fontSize:15.5, fontWeight:600, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", color:"var(--ink)" };
 const navBtn = { width:34, height:34, borderRadius:8, border:"2px solid var(--ink)", color:"var(--ink)", background:"var(--card)", fontWeight:700, fontSize:16 };
 
-export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist, onSearchOrgs, waitlistLine = [], orgs = [] }) {
+const API = import.meta.env.VITE_API_URL;
+// "Student Union - 203-01 (2nd Floor Ballroom Lobby All Spaces)" -> "2nd Floor Ballroom Lobby"
+const groupLabel = g => { const m = /\(([^)]*)\)/.exec(g || ""); return (m ? m[1] : g || "").replace(/\s*All Spaces$/i, "").trim(); };
+
+export default function BookingDrawer({ room: base, onClose, onSubmit, onJoinWaitlist, onSearchOrgs, waitlistLine = [], orgs = [], tabs = null, hidden = false, onFinished }) {
+  const uid = useId().replace(/:/g, "");   // two booking windows can be open at once (compare), so ids must differ
+  // Some rooms are made of smaller bookable spaces (a lobby and its tables). The user books one part, and each day can use a different one.
+  const [rel, setRel] = useState({ parts: [], parents: [], has_diagram: false });
+  const [partId, setPartId] = useState(null);
+  useEffect(() => {
+    setRel({ parts: [], parents: [], has_diagram: false }); setPartId(null);
+    if (!LIVE || !base?.live || !/^\d+$/.test(String(base.id))) return;
+    let off = false;
+    roomParts(base.id).then(r => { if (!off) { setRel(r); if (r.parts[0]) setPartId(r.parts[0].id); } }).catch(() => {});   // no parts info: book the room as it is
+    return () => { off = true; };
+  }, [base?.id]);
+  const part = rel.parts.find(p => p.id === partId) || null;
+  const [spaces, setSpaces] = useState({});   // the space chosen for a day; days not listed use the one picked at the top
+  const hasParts = rel.parts.length > 0;
+  const partOf = id => rel.parts.find(p => p.id === id) || part;
+  const roomFor = p => p ? { ...base, id: p.id, name: p.name, cap: p.capacity ?? base.cap, related: true } : { ...base, related: false };
+  const room = !base ? base : roomFor(part);
+  const [calView, setCalView] = useState("week");   // "week": the chosen space; "spaces": one day with a column for each space
+  const [spaceDay, setSpaceDay] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+  const [viewIds, setViewIds] = useState([]);   // week view: spaces to look at without booking them (empty = just the space being booked)
+  const shown = viewIds.length ? viewIds : [partId];
+  const looking = viewIds.length > 0 && !(viewIds.length === 1 && viewIds[0] === partId);
+  const viewId = looking && viewIds.length === 1 ? viewIds[0] : null;   // exactly one other space: a click books it
+  const showAll = calView === "spaces" || !!looking;
+  const calRoom = !base ? base : hasParts && showAll ? { ...base, related: true } : room;   // by default the calendars show the chosen space
   const todayKey = dayKeyOf(new Date());
   const now = new Date();
   const pf = room?.prefill;   // days + times picked in Find a Space's "Available on" filter: { days: [{ date, from, to }] }
@@ -53,48 +83,58 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   // Pre-fill the club's program advisor from last time, until the user edits the field.
   useEffect(() => { if (!det.advisorTouched) setDet(d => ({ ...d, advisor: rememberedAdvisor(orgs.length > 1 ? org : orgs[0]) })); }, [org, orgs.length]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState("");
-  const [live, setLive] = useState({});                // live busy intervals by day key
+  const [live, setLive] = useState({});                // live busy intervals: { space id: { day key: [...] } }
   const [schedErr, setSchedErr] = useState("");   // set when the room's schedule can't be loaded
   const loaded = useRef(new Set());
   const panel = useRef(null);
   // Keyboard and screen readers: focus moves into the drawer, Tab stays inside, Escape closes it.
-  useDialog(panel, { open: !!room, onClose });
+  useDialog(panel, { open: !!room && !hidden, onClose });
   // Phones and tablets: the page behind doesn't scroll while the drawer is open (desktop unchanged).
   const compact = useIsCompact();
-  useScrollLock(!!room);
   const wide = !compact;     // desktop: one big window, calendar on the left and the booking form on the right
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
-  const { events: weekEvents, loading: weekLoading, error: weekError, retry: weekRetry } = useRoomWeek(room, weekStart);
+  const { events: allWeekEvents, loading: weekLoading, error: weekError, retry: weekRetry } = useRoomWeek(calRoom, weekStart);
+
+  // Week view: the chosen space, plus any spaces switched on above the calendar (and whole-area bookings that cover them).
+  const weekEvents = !hasParts || calView === "spaces" || !looking ? allWeekEvents
+    : allWeekEvents.filter(ev => columnsFor(rel.parts, ev.spaceName).some(id => shown.includes(id)));
 
   useEffect(() => {
     if (!done) return;
-    const t = setTimeout(onClose, 1300);
+    const t = setTimeout(onFinished || onClose, 1300);
     return () => clearTimeout(t);
   }, [done]);
 
+  useEffect(() => { setLive({}); loaded.current = new Set(); setSpaces({}); }, [base?.id]);   // another room: forget the old room's busy times
+
   // Load the room's schedule for the month on screen (live mode only).
+  // It loads every space a chosen day uses, plus the one being looked at.
+  const idsIn = (sp, k) => (Array.isArray(sp[k]) ? sp[k] : sp[k] ? [sp[k]] : [partId || base?.id]).map(String);   // the spaces one day uses (one or several, all at the same time)
+  const needIds = !room ? [] : [...new Set([String(room.id), ...dates.flatMap(k => idsIn(spaces, k))])];
   useEffect(() => {
     if (!LIVE || !room) return;
-    const id = `${room.id}|${month.y}-${month.m}`;
-    if (loaded.current.has(id)) return;
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const first = new Date(month.y, month.m, 1), last = new Date(month.y, month.m + 1, 0);
     if (last < today) return;
-    loaded.current.add(id);
-    setSchedErr("");
-    roomSchedule(room.id, dayKeyOf(first < today ? today : first), dayKeyOf(last))
-      .then(items => setLive(prev => {
-        const next = { ...prev }, add = busyFromSchedule(items);
-        for (const k in add) next[k] = [...(next[k] || []), ...add[k]];
-        return next;
-      })).catch(e => { loaded.current.delete(id); setSchedErr(e.message || "Couldn't load this room's schedule."); });
-  }, [room?.id, month.y, month.m]);
+    for (const sid of needIds) {
+      const id = `${sid}|${month.y}-${month.m}`;
+      if (loaded.current.has(id)) continue;
+      loaded.current.add(id);
+      setSchedErr("");
+      roomSchedule(sid, dayKeyOf(first < today ? today : first), dayKeyOf(last), sid !== String(base.id))   // a part also checks its whole
+        .then(items => setLive(prev => {
+          const add = busyFromSchedule(items), mine = { ...(prev[sid] || {}) };
+          for (const k in add) mine[k] = [...(mine[k] || []), ...add[k]];
+          return { ...prev, [sid]: mine };
+        })).catch(e => { loaded.current.delete(id); setSchedErr(e.message || "Couldn't load this room's schedule."); });
+    }
+  }, [needIds.join(","), month.y, month.m]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!room) return null;
 
   // [startMin, endMin, "booked" | "requested"] for a day
-  const intervalsFor = key => {
-    if (LIVE) return live[key] || [];
+  const intervalsFor = (key, id) => {
+    if (LIVE) return (live[id ?? idOf(key)] || {})[key] || [];
     const out = [];
     for (let h = 9; h <= 20; h++) {
       const st = slotState(room, key, `${h}:00`);
@@ -102,22 +142,30 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     }
     return out;
   };
+  const idsOf = k => idsIn(spaces, k);
+  const idOf = k => idsOf(k)[0];   // the first space for one day
+  const shortName = id => (partOf(id)?.name || "").replace(/^.* - /, "");
   const nameOf = k => (names[k] || "").trim() || eventName.trim();   // the event name for one day
   const tOf = k => times[k] || { start, end };   // the time chosen for one day
+  const hitsFor = (key, id) => { const t = tOf(key); return intervalsFor(key, id).filter(([s, e]) => s < t.end && e > t.start); };
+  const conflictIds = key => idsOf(key).filter(id => hitsFor(key, id).length > 0);   // which of the day's spaces are taken at that time
   const overlaps = key => {
-    const t = tOf(key);
-    const hit = intervalsFor(key).filter(([s, e]) => s < t.end && e > t.start);
+    const hit = idsOf(key).flatMap(id => hitsFor(key, id));
     return { booked: hit.filter(h => h[2] === "booked"), requested: hit.filter(h => h[2] === "requested") };
   };
+  const mkPick = (k, id) => ({ key: k, space: id, start: toHHMM(tOf(k).start), end: toHHMM(tOf(k).end), event: nameOf(k),
+    label: labelOf(k) + (hasParts && idsOf(k).length > 1 ? ` · ${shortName(id)}` : ""), room: hasParts ? roomFor(partOf(id)) : undefined });
 
   const sorted = [...dates].sort();
   const rangeOk = sorted.every(k => tOf(k).end > tOf(k).start);
   // a conflict = another club's booking OR request overlaps the chosen date + time
   const conflicts = sorted.filter(k => { const o = overlaps(k); return o.booked.length > 0 || o.requested.length > 0; });
+  const pastDays = sorted.filter(k => { const d = keyToDate(k); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, tOf(k).start) < now; });   // a start time that has already gone by
+  const total = sorted.reduce((n, k) => n + idsOf(k).length, 0);   // one request for each day and space
   const needOrg = orgs.length > 1 && !org;
   const bookingOrg = orgs.length > 1 ? org : orgs[0];
   const blocker = detailsBlocker(det, room.cap);   // what's still missing from the event details ("" = nothing)
-  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && !needOrg && sorted.every(k => nameOf(k)) && !blocker;   // every day needs a name: its own, or the main one
+  const canReview = sorted.length > 0 && rangeOk && conflicts.length === 0 && pastDays.length === 0 && !needOrg && sorted.every(k => nameOf(k));   // every day needs a name: its own, or the main one
 
   // The top time box sets the default for new days, and moves any day that is still on that default.
   const changeDefault = (ns, ne) => {
@@ -135,7 +183,12 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
     setTimes(t => ({ ...t, [k]: next })); setStart(next.start); setEnd(next.end);
   };
   const sameForAll = () => { const first = tOf(sorted[0]); setTimes(t => Object.fromEntries(sorted.map(k => [k, { ...first }]))); };
+  const pickSpace = id => {   // the space new days start with; days already added keep theirs
+    setSpaces(s => { const n = { ...s }; for (const k of dates) if (!n[k]) n[k] = partId; return n; });
+    setPartId(id);
+  };
   const addDay = (k, s, e) => {
+    if (hasParts) setSpaces(sp => sp[k] ? sp : { ...sp, [k]: partId });
     setDates(ds => ds.includes(k) ? ds : [...ds, k]);
     setTimes(t => ({ ...t, [k]: s != null ? { start: s, end: e } : (t[k] || { start, end }) }));
     if (s != null) { setStart(s); setEnd(e); }
@@ -157,11 +210,12 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const submit = async () => {
     setBusy(true); setError("");
     try {
-      const picks = sorted.map(k => ({ key: k, label: labelOf(k), start: toHHMM(tOf(k).start), end: toHHMM(tOf(k).end), event: nameOf(k) }));
+      const picks = sorted.flatMap(k => idsOf(k).map(id => mkPick(k, id)));   // one request for each day and space
       rememberAdvisor(bookingOrg, det.advisor.trim());
       const failed = (await onSubmit(room, picks, bookingOrg, eventName.trim(), detailsPayload(det, bookingOrg))) || [];
       if (failed.length === 0) { setDone(true); return; }
-      setDates(failed.map(f => f.pick.key)); setConfirming(false);
+      const keep = {}; for (const f of failed) (keep[f.pick.key] ||= []).push(f.pick.space);   // only retry the ones that failed
+      setDates([...new Set(failed.map(f => f.pick.key))]); setSpaces(sp => ({ ...sp, ...keep })); setConfirming(false);
       setError(failed.map(f => `${f.pick.label}: ${f.msg}`).join(" "));
     } catch (e) { setError(e.message || "Couldn't send the request."); setConfirming(false); }
     finally { setBusy(false); }
@@ -170,12 +224,15 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   const joinWl = async () => {
     setBusy(true); setError(""); setWlMsg("");
     try {
-      const picks = conflicts.map(k => ({ key: k, label: labelOf(k), start: toHHMM(tOf(k).start), end: toHHMM(tOf(k).end), event: nameOf(k) }));
+      const picks = conflicts.flatMap(k => conflictIds(k).map(id => mkPick(k, id)));   // only the spaces that are taken
       rememberAdvisor(bookingOrg, det.advisor.trim());
       const failed = (await onJoinWaitlist(room, picks, bookingOrg, eventName.trim(), detailsPayload(det, bookingOrg))) || [];
       const ok = picks.length - failed.length;
       if (ok) setWlMsg(`✓ You joined the waitlist for ${ok} time slot${ok === 1 ? "" : "s"}. See your spot under My requests.`);
-      setDates(ds => ds.filter(k => !conflicts.includes(k) || failed.some(f => f.pick.key === k)));
+      const bad = new Set(failed.map(f => `${f.pick.key}|${f.pick.space}`)), left = {};
+      for (const k of sorted) left[k] = idsOf(k).filter(id => !conflictIds(k).includes(id) || bad.has(`${k}|${id}`));   // spaces still to book on each day
+      setSpaces(sp => ({ ...sp, ...Object.fromEntries(Object.entries(left).filter(([, v]) => v.length)) }));
+      setDates(ds => ds.filter(k => !left[k] || left[k].length));
       if (failed.length) setError(failed.map(f => `${f.pick.label}: ${f.msg}`).join(" "));
     } catch (e) { setError(e.message || "Couldn't join the waitlist."); }
     finally { setBusy(false); }
@@ -183,14 +240,25 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
   // Wide layout: click or drag on the calendar to add that day and use that time.
   const pickInline = (key, s, e) => {
+    if (looking) { pickSpace(viewIds[0]); setSpaces(sp => ({ ...sp, [key]: viewIds })); }   // clicking a time books every space you are looking at, all at that time
+    setViewIds([]);
     addDay(key, s, e); setError("");   // this day gets this time; the other days keep theirs
     const d = keyToDate(key); setMonth({ y: d.getFullYear(), m: d.getMonth() });
   };
   const mineEvents = sorted.map(k => {
     const d = keyToDate(k);
-    return { id: `mine-${k}`, kind: "mine", title: nameOf(k) || "Your choice", sub: conflicts.includes(k) ? "Overlaps another booking" : "Your request",
+    return { id: `mine-${k}`, kind: "mine", title: nameOf(k) || "Your choice", sub: (conflicts.includes(k) ? "Overlaps another booking" : "Your request") + (hasParts && idsOf(k).length > 1 ? ` · ${idsOf(k).map(shortName).join(" + ")}` : ""),
       start: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, tOf(k).start), end: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, tOf(k).end) };
   });
+
+  // A space and time picked in the one-day view: that day uses that space.
+  const pickSpot = (spaceId, key, s) => {
+    pickSpace(spaceId);
+    const same = dates.includes(key) && tOf(key).start === s;   // same day and start time: add this space to the others
+    setSpaces(sp => { const cur = same ? idsIn(sp, key) : []; return { ...sp, [key]: cur.includes(String(spaceId)) ? cur : [...cur, String(spaceId)] }; });
+    addDay(key, s, same ? tOf(key).end : Math.min(MAX, s + 60)); setError("");
+    const d = keyToDate(key); setMonth({ y: d.getFullYear(), m: d.getMonth() });
+  };
 
   // A time picked on the big calendar: add that day and use its time.
   const pickFromCalendar = ({ key, start: s, end: e }) => {
@@ -199,9 +267,9 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
   };
 
   return (
-    <>
+    <div style={{ display: hidden ? "none" : "contents" }}>
       <div onClick={onClose} aria-hidden="true" style={{ position:"fixed", inset:0, background:"rgba(27,42,74,.28)", zIndex:40 }} />
-      <div ref={panel} className="booking-panel" role="dialog" aria-modal="true" aria-labelledby="booking-title" aria-describedby="booking-sub" tabIndex={-1}
+      <div ref={panel} className="booking-panel" role="dialog" aria-modal="true" aria-labelledby={`booking-title-${uid}`} aria-describedby={`booking-sub-${uid}`} tabIndex={-1}
         style={wide
           ? { position:"fixed", top:"3vh", bottom:"3vh", left:0, right:0, margin:"0 auto", width:"min(1220px, 96vw)", background:"var(--card)", zIndex:50,
               border:"2px solid var(--ink)", borderRadius:16, boxShadow:"var(--shadow-lift)", display:"flex", flexDirection:"row", overflow:"hidden" }
@@ -218,17 +286,53 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
                 Couldn't load this week ({weekError}). <button onClick={weekRetry} style={{ color:"var(--link)", fontWeight:700, textDecoration:"underline" }}>Try again</button>
               </div>
             )}
-            <WeekCalendar weekStart={weekStart} onWeekChange={setWeekStart} events={[...weekEvents, ...mineEvents]} loading={weekLoading} noPast
-              onSelect={pickInline} maxHeight={620} />
-            <CalendarLegend />
+            {hasParts && (
+              <div role="group" aria-label="Calendar view" style={{ display:"inline-flex", alignSelf:"flex-start", flexShrink:0, border:"2px solid var(--ink)", borderRadius:10, overflow:"hidden", background:"var(--card)" }}>
+                {[["week", "Week · one space"], ["spaces", "One day · every space"]].map(([v, text]) => (
+                  <button key={v} onClick={() => setCalView(v)} aria-pressed={calView === v}
+                    style={{ padding:"8px 14px", fontSize:14, fontWeight:700, color:"var(--ink)", background: calView === v ? "var(--blue)" : "var(--card)", borderRadius:0, boxShadow:"none", border:"none" }}>{text}</button>
+                ))}
+              </div>
+            )}
+            {hasParts && calView === "week" && rel.parts.length > 1 && (
+              <div style={{ display:"flex", flexShrink:0, gap:6, flexWrap:"wrap", alignItems:"center" }}>
+                <span style={{ fontSize:13.5, fontWeight:700, color:"var(--ink-soft)" }}>Looking at:</span>
+                {rel.parts.map(p => {
+                  const on = shown.includes(p.id);
+                  return (
+                    <button key={p.id} onClick={() => setViewIds(cur => {
+                        const base = cur.length ? cur : [partId];
+                        const next = base.includes(p.id) ? base.filter(id => id !== p.id) : [...base, p.id];
+                        return next.length === 1 && next[0] === partId ? [] : next;   // nothing left = back to the booking space
+                      })} aria-pressed={on} title={p.name}
+                      style={{ padding:"4px 10px", borderRadius:999, fontSize:13, fontWeight:700, border:"2px solid var(--ink)", color:"var(--ink)", background: on ? "var(--blue)" : "var(--card)" }}>{spaceLabel(p.name)}</button>
+                  );
+                })}
+                <button onClick={() => setViewIds(rel.parts.map(p => p.id))} style={{ padding:"4px 10px", borderRadius:999, fontSize:13, fontWeight:700, border:"2px dashed var(--ink)", color:"var(--ink)", background:"var(--card)" }}>All</button>
+                {looking && <button onClick={() => setViewIds([])} style={{ padding:"4px 10px", borderRadius:999, fontSize:13, fontWeight:700, border:"2px dashed var(--ink)", color:"var(--ink)", background:"var(--card)" }}>Reset</button>}
+                {looking && <span style={{ fontSize:12.5, color:"var(--ink-faint)" }}>Just looking. You're still booking {spaceLabel(partOf(partId)?.name || "")}.{viewId ? " Click a time to book this one instead." : " Click a time to book all of these at once."}</span>}
+              </div>
+            )}
+            {hasParts && calView === "spaces" ? (
+              <SpaceDayGrid parts={rel.parts} events={weekEvents} day={spaceDay} onDayChange={setSpaceDay} loading={weekLoading}
+                mine={sorted.flatMap(k => idsOf(k).map(id => ({ id: `m-${k}-${id}`, spaceId: id, title: nameOf(k) || "Your choice",
+                  start: new Date(keyToDate(k).getFullYear(), keyToDate(k).getMonth(), keyToDate(k).getDate(), 0, tOf(k).start),
+                  end: new Date(keyToDate(k).getFullYear(), keyToDate(k).getMonth(), keyToDate(k).getDate(), 0, tOf(k).end) })))}
+                onPick={pickSpot} />
+            ) : (<>
+              <WeekCalendar weekStart={weekStart} onWeekChange={setWeekStart} events={[...weekEvents, ...mineEvents]} loading={weekLoading} noPast
+                onSelect={pickInline} maxHeight={620} />
+              <CalendarLegend />
+            </>)}
           </div>
         )}
         <div style={wide ? { width:430, flexShrink:0, display:"flex", flexDirection:"column", position:"relative", minHeight:0 }
                          : { display:"flex", flexDirection:"column", flex:1, minHeight:0, position:"relative" }}>
+        {tabs}
         <div className="booking-head" style={{ padding:"20px 22px", borderBottom:"1px solid var(--line)" }}>
           <Pill status={room.status} small />
-          <h2 id="booking-title" style={{ fontSize:24, fontWeight:800, margin:"10px 0 3px" }}>{room.name}</h2>
-          <div id="booking-sub" style={{ fontSize:15.6, color:"var(--ink-faint)" }}>{room.building} · Holds {room.cap}</div>
+          <h2 id={`booking-title-${uid}`} style={{ fontSize:24, fontWeight:800, margin:"10px 0 3px" }}>{hasParts ? base.name : room.name}</h2>
+          <div id={`booking-sub-${uid}`} style={{ fontSize:15.6, color:"var(--ink-faint)" }}>{room.building} · Holds {hasParts ? base.cap : room.cap}</div>
           <button className="booking-close" onClick={onClose} aria-label="Close booking" style={{ position:"absolute", top:18, right:20, width:30, height:30,
             borderRadius:8, background:"var(--line-soft)" }}>×</button>
         </div>
@@ -253,7 +357,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
                   {p.coHostNames.length > 0 && <div style={{ fontSize:15, marginBottom:6 }}>Co-hosting with: <b>{p.coHostNames.join(", ")}</b></div>}
                   {p.advisor && <div style={{ fontSize:15, marginBottom:6 }}>Program advisor: <b>{p.advisor}</b></div>}
                 </>); })()}
-                {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}><b>{labelOf(k)}</b> · {fmt12(tOf(k).start)} – {fmt12(tOf(k).end)}{sorted.some(j => nameOf(j) !== eventName.trim()) && <> · {nameOf(k)}</>}</div>)}
+                {sorted.map(k => <div key={k} style={{ fontSize:15, padding:"3px 0" }}><b>{labelOf(k)}</b>{hasParts && <> · {idsOf(k).map(shortName).join(" + ")}</>} · {fmt12(tOf(k).start)} – {fmt12(tOf(k).end)}{sorted.some(j => nameOf(j) !== eventName.trim()) && <> · {nameOf(k)}</>}</div>)}
               </div>
             </div>
           )}
@@ -262,6 +366,26 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
             {schedErr && <div role="alert" style={{ marginBottom:14, padding:"10px 14px", borderRadius:10, background:"var(--red-wash)",
               color:"var(--red)", border:"2px solid var(--red)", fontSize:14, fontWeight:600 }}>
               Couldn't load this room's schedule ({schedErr}), so some times may look free when they aren't. Change months or reopen to retry.</div>}
+            {rel.parts.length > 0 && (
+              <div style={{ marginBottom:18 }}>
+                <div style={{ fontSize:15.6, fontWeight:700, marginBottom:2 }}>Which space?</div>
+                <div style={{ fontSize:13.5, color:"var(--ink-faint)", marginBottom:8 }}>Pick the space for the days you add next. Each day in "Your selection" can use a different space.</div>
+                {rel.has_diagram && <img src={`${API}/rooms/${base.id}/photo?diagram=true`} alt={`Layout of ${base.name}`} onError={e => { e.currentTarget.style.display = "none"; }}
+                  style={{ width:"100%", maxHeight:260, objectFit:"contain", background:"#fff", border:"2px solid var(--ink)", borderRadius:10, marginBottom:10 }} />}
+                {[...new Set(rel.parts.map(p => p.group || ""))].map(g => (
+                  <div key={g || "none"} style={{ marginBottom:8 }}>
+                    {g && <div style={{ fontSize:13, fontWeight:700, color:"var(--ink-soft)", margin:"4px 0 5px" }}>{groupLabel(g)}</div>}
+                    <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                      {rel.parts.filter(p => (p.group || "") === g).map(p => (
+                        <button key={p.id} onClick={() => pickSpace(p.id)} aria-pressed={partId === p.id}
+                          style={{ padding:"8px 13px", borderRadius:999, fontSize:14, fontWeight:700, border:"2px solid var(--ink)", color:"var(--ink)",
+                            background: partId === p.id ? "var(--blue)" : "var(--card)", textAlign:"left" }}>{p.name.replace(/^.* - /, "")}</button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {orgs.length > 1 && (
               <div style={{ marginBottom:18 }}>
                 <div style={{ fontSize:15.6, fontWeight:700, marginBottom:8 }}>Booking for which club?</div>
@@ -355,9 +479,30 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
                             onChange={e => { const v = fromHHMM(e.target.value); if (v !== null) setDayTime(k, "end", v); }} />
                         </label>
                       </div>
+                      {hasParts && (
+                        <div style={{ margin:"2px 0 4px" }}>
+                          {idsOf(k).map((id, i, arr) => (
+                            <div key={i} style={{ display:"flex", gap:6, alignItems:"center", margin:"2px 0" }}>
+                              <label style={{ fontSize:13.5, fontWeight:600, minWidth:0 }}>Space{" "}
+                                <select value={id} aria-label={`${labelOf(k)} space ${i + 1}`}
+                                  onChange={e => setSpaces(sp => { const c = [...idsIn(sp, k)]; c[i] = e.target.value; return { ...sp, [k]: c }; })}
+                                  style={{ ...timeBox, padding:"6px 8px", fontSize:14.5, maxWidth:"100%" }}>
+                                  {rel.parts.map(p => <option key={p.id} value={p.id} disabled={String(p.id) !== id && arr.includes(String(p.id))}>{p.group ? `${groupLabel(p.group)}: ` : ""}{p.name.replace(/^.* - /, "")}</option>)}
+                                </select>
+                              </label>
+                              {arr.length > 1 && <button onClick={() => setSpaces(sp => ({ ...sp, [k]: idsIn(sp, k).filter((_, j) => j !== i) }))} aria-label={`Remove ${shortName(id)} from ${labelOf(k)}`} style={{ fontSize:19, color:"var(--ink-faint)" }}>×</button>}
+                            </div>
+                          ))}
+                          {idsOf(k).length < rel.parts.length && (
+                            <button onClick={() => setSpaces(sp => { const c = idsIn(sp, k), nx = rel.parts.find(p => !c.includes(String(p.id))); return nx ? { ...sp, [k]: [...c, String(nx.id)] } : sp; })}
+                              style={{ fontSize:13, fontWeight:700, color:"var(--ink)", padding:"3px 10px", border:"2px dashed var(--ink)", borderRadius:999, background:"var(--card)", margin:"3px 0" }}>+ Add another space at this time</button>
+                          )}
+                        </div>
+                      )}
                       <input value={names[k] || ""} onChange={e => setNames(n => ({ ...n, [k]: e.target.value }))} maxLength={100}
                         placeholder={eventName.trim() ? `Event name (same as above: ${eventName.trim()})` : "Event name for this day"} aria-label={`${labelOf(k)} event name`}
                         style={{ width:"100%", padding:"7px 10px", fontSize:14.5, border:"2px solid var(--ink)", borderRadius:8, background:"var(--paper)", outline:"none", margin:"2px 0 4px" }} />
+                      {pastDays.includes(k) && <div style={{ color:"var(--red)", fontWeight:600, fontSize:14 }}>That start time has already passed. Pick a later time or another day.</div>}
                       {(o.booked.length > 0 || o.requested.length > 0) && <div style={{ color:"var(--red)", fontWeight:600, fontSize:14 }}>
                         Time conflict: {o.booked.length > 0
                           ? `already booked ${o.booked.map(([s, e]) => `${fmt12(s)}–${fmt12(e)}`).join(", ")}`
@@ -372,7 +517,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
 
             {wlMsg && <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:15, marginTop:14 }}>{wlMsg}</div>}
             {conflicts.length > 0 && !needOrg && onJoinWaitlist && (
-              <WaitlistOffer named={conflicts.every(k => nameOf(k))} blocker={blocker} roomName={room.name} days={conflicts} start={start} end={end} times={times} line={waitlistLine} busy={busy} onJoin={guarded(joinWl, true)} />
+              <WaitlistOffer named={conflicts.every(k => nameOf(k))} blocker={blocker} roomName={hasParts ? base.name : room.name} days={conflicts} start={start} end={end} times={times} line={waitlistLine} busy={busy} onJoin={guarded(joinWl, true)} />
             )}
           </div>
         </div>
@@ -380,7 +525,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
         <div className="booking-foot" style={{ padding:"16px 22px", borderTop:"1px solid var(--line)", background:"var(--paper)" }}>
           {done ? (
             <div role="status" style={{ color:"var(--green)", fontWeight:600, fontSize:16.8, textAlign:"center" }}>
-              ✓ {sorted.length} request{sorted.length === 1 ? "" : "s"} sent — you'll get a notification when reviewed
+              ✓ {total} request{total === 1 ? "" : "s"} sent — you'll get a notification when reviewed
               {TEST_BOOKINGS_ONLY && <div style={{ marginTop:6, fontSize:14.5, fontWeight:500, color:"var(--ink-soft)" }}>
                 Test booking only: the room isn't reserved in 25Live.{" "}
                 <a href={LIVE25_URL} target="_blank" rel="noopener noreferrer" style={{ color:"var(--link)", fontWeight:700 }}>Book it in 25Live ↗</a></div>}
@@ -398,10 +543,11 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
               background: canReview ? "var(--blue)" : "var(--line-soft)" }}>
               {needOrg ? "Choose a club to continue"
                 : sorted.length === 0 ? "Pick at least one day"
+                : pastDays.length ? "That time has already passed"
                 : conflicts.length ? "Time conflict: join the waitlist or change the time"
                 : !sorted.every(k => nameOf(k)) ? "Add an event name to continue"
                 : blocker ? blocker
-                : `Review ${sorted.length} request${sorted.length === 1 ? "" : "s"}`}
+                : `Review ${total} request${total === 1 ? "" : "s"}`}
             </button>
           )}
         </div>
@@ -409,7 +555,7 @@ export default function BookingDrawer({ room, onClose, onSubmit, onJoinWaitlist,
       </div>
       {notice && <TestBookingNotice waitlist={notice.waitlist} onCancel={() => setNotice(null)}
         onContinue={() => { const run = notice.run; setNotice(null); run(); }} />}
-      {showCal && !wide && <BookingCalendar room={room} picks={sorted.map(k => ({ key: k, ...tOf(k) }))} onPick={pickFromCalendar} onClose={() => setShowCal(false)} />}
-    </>
+      {showCal && !wide && <BookingCalendar room={calRoom} picks={sorted.map(k => ({ key: k, ...tOf(k) }))} onPick={pickFromCalendar} onClose={() => setShowCal(false)} />}
+    </div>
   );
 }

@@ -6,6 +6,10 @@ import CampusMapPage from './pages/CampusMapPage.jsx';
 import FindSpace from './pages/FindSpace.jsx';
 import RoomDetail from './pages/RoomDetail.jsx';
 import BookingDrawer from './pages/BookingDrawer.jsx';
+import { useScrollLock } from './useMedia.js';
+import BookingTabs from './components/BookingTabs.jsx';
+import ComparePicker from './components/ComparePicker.jsx';
+import RoomCompare from './components/RoomCompare.jsx';
 import MyRequests from './pages/MyRequests.jsx';
 import Approvals from './pages/Approvals.jsx';
 import RoomsAdmin from './pages/RoomsAdmin.jsx';
@@ -41,7 +45,20 @@ export default function App() {
   const afterLogin=useRef(null); // deep link the user wanted before being sent to /login
   const [role,setRole]=useState("leader");
   const [profiles,setProfiles]=useState(() => ({ ...PROFILES, general:{ name:"Guest", email:"", username:"guest" } }));
-  const [openRoom,setOpenRoom]=useState(null);
+  const MAX_COMPARE = 4;
+  const [bookRooms,setBookRooms]=useState([]);   // rooms open in the booking window, one tab each (more than one = comparing)
+  const [bookTab,setBookTab]=useState(0);         // a number: that room's tab; "compare": the rooms side by side
+  const [picking,setPicking]=useState(false);     // choosing another room to add
+  const openRoom = bookRooms[0] || null;
+  const openBooking = r => { setBookRooms(r ? [r] : []); setBookTab(0); setPicking(false); };
+  const closeBooking = () => openBooking(null);
+  const removeBookRoom = i => {
+    const left = bookRooms.length - 1;
+    setBookRooms(rs => rs.filter((_, j) => j !== i));
+    setBookTab(t => left < 2 && t === "compare" ? 0 : t === "compare" ? t : t > i ? t - 1 : t === i ? Math.max(0, Math.min(i, left - 1)) : t);   // stay on the room being viewed; if it was removed, show its neighbour
+  };
+  useScrollLock(bookRooms.length > 0);   // the page behind the booking window stays put
+  const activeRoom = (bookTab==="compare" ? bookRooms[0] : bookRooms[bookTab]) || openRoom;   // the tab being looked at
 
   const [requests,setRequests]=useState(api.LIVE ? [] : [
     { id:1, room:ROOMS[1], org:"Dance Collective", date:D[1].label, time:"12:00", status:"pending" },
@@ -206,7 +223,7 @@ export default function App() {
   const [waitlistLine,setWaitlistLine]=useState([]);
   const [wlLoading,setWlLoading]=useState(false);
   const [mockWl,setMockWl]=useState({});   // waitlist lines when running without the live server
-  const wlRoom = openRoom;   // waitlist is only used inside the booking popup
+  const wlRoom = activeRoom;   // waitlist is only used inside the booking popup
   const loadWaitlist = async room => {
     if (!api.LIVE || !room) { setWaitlistLine([]); return; }
     setWlLoading(true);
@@ -323,14 +340,14 @@ export default function App() {
       ...(role==="admin" ? [{ every: 15000, run: loadVerifs }] : []),
       ...(role==="leader" ? [{ every: 15000, run: loadMemberships }] : []),
       ...(page==="forum" ? [{ every: 15000, run: loadForum }] : []),
-      ...(openRoom ? [{ every: 10000, run: () => loadWaitlist(openRoom) }] : []),
+      ...(activeRoom ? [{ every: 10000, run: () => loadWaitlist(activeRoom) }] : []),
     ];
     const guard = f => () => { if (!document.hidden) f(); };
     const timers = jobs.map(j => setInterval(guard(j.run), j.every));
     const onVisible = () => jobs.forEach(j => guard(j.run)());
     document.addEventListener("visibilitychange", onVisible);
     return () => { timers.forEach(clearInterval); document.removeEventListener("visibilitychange", onVisible); };
-  }, [signedIn, role, page, rooms, openRoom?.id]);
+  }, [signedIn, role, page, rooms, activeRoom?.id]);
 
   useEffect(() => {
     if (!signedIn || page!=="messages" || activeThread==null) return;
@@ -377,7 +394,7 @@ export default function App() {
     if (api.LIVE && user) loadLive(r, user);
   };
   const signIn = (r, user) => enter(r, user);
-  const logout = () => { setOpenRoom(null); api.setToken(null); setSignedIn(false); navigate("/login"); };
+  const logout = () => { closeBooking(); api.setToken(null); setSignedIn(false); navigate("/login"); };
 
   // Restore the session on page load (refresh, new tab, shared link).
   const restore = () => {
@@ -435,7 +452,7 @@ export default function App() {
         <ClubProfile name={viewingClub} clubs={clubs} requests={requests} selfId={selfId} onBack={()=>back("/clubs")} onMessagePerson={messagePerson} />
       ) : viewingRoomId!=null ? (
         viewingRoom
-          ? <RoomDetail room={viewingRoom} onBack={()=>back(role==="admin" ? "/rooms" : "/find")} onBook={role==="general" ? undefined : setOpenRoom}
+          ? <RoomDetail room={viewingRoom} onBack={()=>back(role==="admin" ? "/rooms" : "/find")} onBook={role==="general" ? undefined : openBooking}
               role={role} orgs={leaderOrgs} orgIds={orgIds} />
           : <main className="page" style={{ maxWidth:900, margin:"0 auto", padding:"24px", fontWeight:600 }}>
               {roomsLoading ? "Loading room…" : <>Room not found. <button onClick={()=>navigate(role==="admin" ? "/rooms" : "/find")} style={{ color:"var(--link)", fontWeight:700 }}>{role==="admin" ? "Back to rooms" : "Back to search"}</button></>}
@@ -443,7 +460,7 @@ export default function App() {
       ) : (
         <>
           {dataLoading && ["requests","approvals","verifications"].includes(page) && <LoadingScreen inline label="Loading your data…" />}
-          {role==="leader" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} onBook={setOpenRoom} />}
+          {role==="leader" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} onBook={openBooking} />}
           {role==="general" && page==="find" && <FindSpace rooms={rooms} loading={roomsLoading} onView={openRoomDetail} />}
           {role==="leader" && page==="requests" && !dataLoading && <MyRequests onCancel={cancelRequest} clubs={clubs} requests={requests.filter(r=>leaderOrgs.includes(r.org))} showOrg={leaderOrgs.length>1} />}
           {role==="admin" && page==="approvals" && !dataLoading && <Approvals clubs={clubs} requests={requests} onDecide={decide} onOpenClub={openClub} />}
@@ -461,12 +478,26 @@ export default function App() {
           {page==="messages" && <Messages threads={threads} onSend={sendMessage} onStartChat={startChat}
             activeId={activeThread} setActiveId={setActiveThread} selfId={selfId} onSearchPeople={searchPeople} unreadMap={unreadMap} />}
           {page==="map" && <CampusMapPage rooms={rooms} loading={roomsLoading}
-            onView={role==="leader" || role==="general" || role==="admin" ? openRoomDetail : undefined} onBook={role==="leader" ? setOpenRoom : undefined} />}
+            onView={role==="leader" || role==="general" || role==="admin" ? openRoomDetail : undefined} onBook={role==="leader" ? openBooking : undefined} />}
         </>
       )}
 
-      {openRoom && role!=="general" && <BookingDrawer room={openRoom} onClose={()=>setOpenRoom(null)} onSubmit={submitRequest} orgs={leaderOrgs}
-        onSearchOrgs={searchOrgOptions} onJoinWaitlist={joinWaitlist} waitlistLine={api.LIVE ? waitlistLine : (mockWl[openRoom?.id] || [])} />}
+      {openRoom && role!=="general" && (() => {
+        const many = bookRooms.length > 1;
+        const tabBar = <BookingTabs rooms={bookRooms} active={bookTab} onTab={setBookTab} onAdd={()=>setPicking(true)} onRemove={removeBookRoom} max={MAX_COMPARE} />;
+        return (<>
+          {bookRooms.map((r, i) => (
+            <BookingDrawer key={r.id} room={r} hidden={many && bookTab!==i} onClose={closeBooking}
+              onFinished={many ? () => removeBookRoom(i) : closeBooking}   // one room done: keep the others open
+              tabs={tabBar}
+              onSubmit={submitRequest} orgs={leaderOrgs} onSearchOrgs={searchOrgOptions} onJoinWaitlist={joinWaitlist}
+              waitlistLine={r.id===activeRoom?.id ? (api.LIVE ? waitlistLine : (mockWl[r.id] || [])) : []} />
+          ))}
+          {many && bookTab==="compare" && <RoomCompare rooms={bookRooms} tabs={tabBar} onClose={closeBooking} onBook={setBookTab} />}
+          {picking && <ComparePicker rooms={rooms} open={bookRooms} onClose={()=>setPicking(false)}
+            onPick={r=>{ setBookRooms(rs => rs.some(x => String(x.id)===String(r.id)) ? rs : [...rs, r]); setBookTab(bookRooms.length); setPicking(false); }} />}
+        </>);
+      })()}
     </div>
   );
 }
