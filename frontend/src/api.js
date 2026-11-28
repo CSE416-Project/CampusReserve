@@ -1,6 +1,7 @@
 // Thin client for the CampusReserve FastAPI server.
 // Live mode is ON only when VITE_API_URL is set (see .env.example); otherwise the app runs on mock data.
 import * as demo from './data/mockExport.js'; // demo data if api not connected
+import { DEFAULT_EVENT_TYPE, QUESTION_LABELS } from './data/eventDetails.js';
 const BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 export const LIVE = !!BASE;
 
@@ -71,8 +72,15 @@ export const register = (email, name, password) =>
 // General account: username + password, no email. It can log in right away.
 // Usernames: 3-30 letters, numbers, dots, dashes or underscores (the server checks the same).
 export const USERNAME_RE = /^[A-Za-z0-9._-]{3,30}$/;
-export const registerGeneral = (username, password) =>
-  call("/auth/register-general", { method: "POST", json: { username: username.trim(), password } });
+export const registerGeneral = (username, password, email = "") =>
+  call("/auth/register-general", { method: "POST",
+    json: { username: username.trim(), password, ...(email.trim() ? { email: email.trim() } : {}) } });
+// A general account's optional email (for password resets): { email, pending_email }.
+// A new address only counts once its owner opens the link we email to it.
+export const getAccountEmail = () => call("/auth/email");
+export const setAccountEmail = email => call("/auth/email", { method: "PUT", json: { email: email.trim() } });
+export const removeAccountEmail = () => call("/auth/email", { method: "DELETE" });
+export const confirmAccountEmail = token => call("/auth/confirm-email", { method: "POST", json: { token } });
 // Forgot password, and confirming a new account's email. These work without being logged in.
 export const forgotPassword = email => call("/auth/forgot-password", { method: "POST", json: { email: email.trim() } });
 export const resetPassword = (token, new_password) => call("/auth/reset-password", { method: "POST", json: { token, new_password } });
@@ -87,7 +95,7 @@ export const orgs = () => call("/organizations");
 export const orgsPage = ({ search, limit, offset = 0 } = {}) =>
   call("/organizations" + qs({ search, limit, offset }), { withTotal: true });
 export const orgDetail = id => call(`/organizations/${id}`);
-export const adaptClub = o => ({ id:o.id, name:o.name, category:null, bio:o.description || "", count:o.verified_member_count || 0, eboard:null, live:true });
+export const adaptClub = o => ({ id:o.id, name:o.name, category:null, bio:o.description || "", email:o.contact_email || "", count:o.verified_member_count || 0, eboard:null, live:true });
 
 // ---- rooms ------------------------------------------------------------
 export const rooms = () => call("/rooms");
@@ -108,6 +116,17 @@ export const availableRooms = ({ date, from, to }) => {
   const [y, m, d] = date.split("-").map(Number);
   const t12 = v => { const [h, mi] = v.split(":").map(Number); return `${((h + 11) % 12) + 1}:${p2(mi)} ${h < 12 ? "AM" : "PM"}`; };
   return call(`/rooms/available?year=${y}&month=${m}&day=${d}&start_time=${encodeURIComponent(t12(from))}&end_time=${encodeURIComponent(t12(to))}`);
+};
+
+// Rooms that are free for any of several days and times (every day x every time window).
+// Each room that is free for at least one of them comes back with free_slots and pending_slots
+// (slot keys like "2026-12-01|18:00-20:00"); rooms missing from the list are taken for all of them.
+// dates: ["2026-12-01", ...]   windows: [{ from:"18:00", to:"20:00" }, ...]
+export const availableSlots = ({ dates, windows }) => {
+  const p = new URLSearchParams();
+  dates.forEach(d => p.append("dates", d));
+  windows.forEach(w => p.append("windows", `${w.from}-${w.to}`));
+  return call(`/rooms/available-slots?${p.toString()}`);
 };
 
 // ---- room comments ----------------------------------------------------
@@ -158,7 +177,15 @@ export function adaptRequest(r, roomsById = {}) {
   const status = r.status;
   return { id: r.id, room, org: r.organization_name || "", date: `${DOW[s.getDay()]}, ${MON[s.getMonth()]} ${s.getDate()}`,
     time: `${p2(s.getHours())}:${p2(s.getMinutes())}–${p2(new Date(r.end_time).getHours())}:${p2(new Date(r.end_time).getMinutes())}`, status, reason: r.decision_reason,
-    event: r.event_name, position: r.waitlist_position, startAt: s, endAt: new Date(r.end_time) };
+    event: r.event_name, position: r.waitlist_position, startAt: s, endAt: new Date(r.end_time),
+    // event details (same shape as displayDetails() in data/eventDetails.js)
+    headcount: r.expected_attendance || null,
+    description: r.description || "",
+    eventType: r.event_type || DEFAULT_EVENT_TYPE,
+    includes: Object.keys(QUESTION_LABELS).filter(k => r.event_questions?.[k]).map(k => QUESTION_LABELS[k]),
+    answered: !!r.event_questions && Object.keys(r.event_questions).length > 0,   // false for requests made before these questions existed
+    coHosts: (r.co_hosts || []).map(c => c.name),
+    advisor: r.program_advisor || "" };
 }
 
 // Busy intervals per day from schedule items: { "2026-10-21": [[startMin, endMin, "booked"|"requested"], ...] }
@@ -180,11 +207,30 @@ export function busyFromSchedule(items) {
 
 const hhmm = m => `${p2(Math.floor(m / 60))}:${p2(m % 60)}`;
 // One booking request for a picked day and time range ("HH:MM" start/end).
-export function requestBody(room, orgId, pick, eventName) {
+// `details` = what the booking form collected beyond the basics (see detailsPayload in data/eventDetails.js):
+//   { headcount, description, questions:{key:bool}, coHostIds:[...], advisor, policyAgreed }
+export function requestBody(room, orgId, pick, eventName, details = {}) {
   return { organization_id: orgId, room_id: String(room.id), event_name: pick.event || eventName || "Club event",
-    start_time: `${pick.key}T${pick.start}`, end_time: `${pick.key}T${pick.end}` };
+    start_time: `${pick.key}T${pick.start}`, end_time: `${pick.key}T${pick.end}`,
+    expected_attendance: details.headcount || null,
+    event_type: details.eventType || DEFAULT_EVENT_TYPE,
+    description: details.description || null,
+    event_questions: details.questions || {},
+    co_host_organization_ids: details.coHostIds || [],
+    program_advisor: details.advisor || null,
+    policy_agreed: !!details.policyAgreed };
 }
 export { hhmm };
+
+// A club's program advisor rarely changes: remember the last one typed per club in this browser and pre-fill it.
+export function rememberedAdvisor(org) {
+  if (!org) return "";
+  try { return localStorage.getItem(`cr_advisor:${org}`) || ""; } catch { return ""; }
+}
+export function rememberAdvisor(org, name) {
+  if (!org) return;
+  try { name ? localStorage.setItem(`cr_advisor:${org}`, name) : localStorage.removeItem(`cr_advisor:${org}`); } catch { /* storage unavailable */ }
+}
 
 // ---- verification ------------------------------------------------------
 // Admin: every unverified membership request, one row each.
@@ -238,6 +284,7 @@ export const adaptPost = p => ({
 // Without server connection, these run on demo data: data/mockExport.js.
 export const exportPreview = LIVE ? (includePast = false) => call("/admin/sync/export" + qs({ include_past: includePast || undefined })) : demo.exportPreview;
 export const exportNew = LIVE ? (includePast = false) => call("/admin/sync/export" + qs({ include_past: includePast || undefined }), { method: "POST" }) : demo.exportNew;
+export const exportDetails = LIVE ? id => call(`/admin/sync/batches/${encodeURIComponent(id)}/details`) : null;   // admin-only sheet, not for 25Live
 export const exportBatch = LIVE ? id => call(`/admin/sync/batches/${encodeURIComponent(id)}/csv`) : demo.exportBatch;
 export const confirmBatch = LIVE ? id => call(`/admin/sync/batches/${encodeURIComponent(id)}/confirm`, { method: "POST" }) : demo.confirmBatch;
 export const undoBatch = LIVE ? id => call(`/admin/sync/batches/${encodeURIComponent(id)}/undo`, { method: "POST" }) : demo.undoBatch;

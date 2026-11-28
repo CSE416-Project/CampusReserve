@@ -48,6 +48,8 @@ class Organization(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
+    # The club's public contact email (shown on the Clubs pages). Not a login.
+    contact_email = Column(String(255), nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(

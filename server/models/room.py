@@ -15,12 +15,13 @@ from sqlalchemy import (
     Text,
     Boolean,
     CheckConstraint,
+    Table,
     UniqueConstraint,
     Index,
     event,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, ExcludeConstraint, TSTZRANGE, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, ExcludeConstraint, JSONB, TSTZRANGE, UUID
 from sqlalchemy.orm import relationship
 
 from .base import Base
@@ -149,6 +150,28 @@ class RoomClosure(Base):
         return f"<RoomClosure {target} {self.closed_from}..{self.closed_until}>"
 
 
+# Organizations co-hosting an event beside the requesting one ("Additional
+# Organization(s) for this Event" on 25Live's form). A plain join table: a request
+# can have several co-hosts, and an organization can co-host many requests.
+request_co_hosts = Table(
+    "request_co_hosts",
+    Base.metadata,
+    Column(
+        "request_id",
+        UUID(as_uuid=True),
+        ForeignKey("requests.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "organization_id",
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    ),
+)
+
+
 class Request(Base):
     """A booking request for a room over a time window."""
 
@@ -176,6 +199,27 @@ class Request(Base):
 
     event_name = Column(String(255), nullable=False)
     expected_attendance = Column(Integer, nullable=True)
+
+    # ---- event details (the answers 25Live's request form asks for) ----------
+    # ADDED: stored in our own shape; services/live25_sync.py maps them onto
+    # 25Live's fields when a booking is pushed (or shown to an admin to enter).
+    # 25Live's own default for club events.
+    event_type = Column(
+        String(100), nullable=False, default="Student - Program",
+        server_default="Student - Program",
+    )
+    # Plain text. The adapter wraps it in <p> tags for 25Live's HTML editor.
+    description = Column(Text, nullable=True)
+    # The 13 yes/no event questions as {"food": true, ...} (see
+    # services/request_details.py). JSON rather than 13 columns: the question
+    # set is 25Live's, can change, and is never filtered on. {} = never answered.
+    event_questions = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    # Free text; the club's program advisor, if they gave one.
+    program_advisor = Column(String(255), nullable=True)
+    # When the requester ticked "I agree to adhere to all building policies".
+    policy_agreed_at = Column(DateTime, nullable=True)
 
     # Free start/end datetimes for the event itself...
     start_time = Column(DateTime, nullable=False)
@@ -248,6 +292,10 @@ class Request(Base):
     requester = relationship("User", back_populates="requests", foreign_keys=[requester_id])
     decided_by = relationship("User", foreign_keys=[decided_by_id])
     organization = relationship("Organization")
+    # selectin: list endpoints read co_hosts for every row; this loads them in one extra query.
+    co_hosts = relationship(
+        "Organization", secondary=request_co_hosts, order_by="Organization.name", lazy="selectin"
+    )
 
     __table_args__ = (
         CheckConstraint("end_time > start_time", name="ck_request_time_order"),

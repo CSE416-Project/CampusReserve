@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
+import { scaleQuery, layoutZoom, onLayoutZoomChange } from './a11y/zoomLayout.js';
 
 // Screen-size breakpoints. Keep these in sync with responsive.css.
 export const PHONE = "(max-width: 639px)";      // phones
 export const COMPACT = "(max-width: 1023px)";   // phones and tablets: bottom tab bar instead of the top nav
 
 // True while the media query matches; updates when the window is resized or the phone is rotated.
-export function useMedia(query) {
+// Width breakpoints follow the accessibility page zoom: at 125%, "max-width: 639px" means 639px of
+// zoomed page, i.e. a window up to 799px wide (see a11y/zoomLayout.js).
+export function useMedia(rawQuery) {
+  const [zoom, setZoom] = useState(layoutZoom);
+  useEffect(() => onLayoutZoomChange(setZoom), []);
+  const query = scaleQuery(rawQuery, zoom);
   const get = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia(query).matches;
   const [match, setMatch] = useState(get);
   useEffect(() => {

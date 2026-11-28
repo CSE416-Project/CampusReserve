@@ -15,7 +15,7 @@ export default function ForgotPassword({ onBack, initialEmail = "" }) {
   };
   return (
     <AuthShell title={sent ? "Check your email" : "Forgot your password?"}
-      subtitle={sent ? "" : "Enter your SBU email and we'll send you a link to choose a new one."}
+      subtitle={sent ? "" : "Enter the email on your account and we'll send you a link to choose a new one. General accounts need an email added in their profile first."}
       footer={<button onClick={onBack} style={{ color:"var(--link)", fontWeight:700, fontSize:15 }}>← Back to log in</button>}>
       {sent ? (
         <div role="status" style={{ marginTop:4, fontSize:15.5, lineHeight:1.55, color:"var(--ink-soft)" }}>
@@ -25,7 +25,7 @@ export default function ForgotPassword({ onBack, initialEmail = "" }) {
         </div>
       ) : (
         <form noValidate onSubmit={submit}>
-          <label style={authLabel}>SBU email
+          <label style={authLabel}>Email
             <input type="email" autoComplete="email" value={email} onChange={e=>{ setEmail(e.target.value); setError(""); }}
               placeholder="firstname.lastname@stonybrook.edu" style={authInput} />
           </label>

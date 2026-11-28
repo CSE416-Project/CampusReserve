@@ -58,6 +58,13 @@ export default function Export25Live() {
     return file;
   }, saved);
 
+  // A companion sheet with every event question as its own Yes/No column. For the admin, NOT for upload to 25Live.
+  const downloadDetails = b => run(b.id, async () => {
+    const file = await api.exportDetails(b.id);
+    api.saveTextFile(file.filename, file.csv);
+    return file;
+  }, f => `Downloaded the details sheet for ${plural(f.count, "booking")} as ${f.filename}. It's for your own review, so don't upload it to 25Live.`);
+
   const markUploaded = b => run(b.id, () => api.confirmBatch(b.id),
     r => `Marked ${plural(r.confirmed, "booking")} as uploaded to 25Live.`);
 
@@ -95,7 +102,7 @@ export default function Export25Live() {
               </button>
             </div>
             <p style={{ fontSize:13.5, color:"var(--ink-faint)", margin:"6px 0 4px" }}>
-              Event type “{data.settings.event_type}” · {data.settings.primary_organization ? `Organization “${data.settings.primary_organization}”` : "Organization: each club's own name"}.
+              Event type: as each request chose (default “Student - Program”) · {data.settings.primary_organization ? `Organization “${data.settings.primary_organization}”` : "Organization: each club's own name"}.
               These must match 25Live exactly.
             </p>
             <label style={{ display:"flex", gap:8, alignItems:"center", fontSize:14, color:"var(--ink-soft)", margin:"4px 0 8px" }}>
@@ -151,6 +158,8 @@ export default function Export25Live() {
                       </div>
                       <div className="btn-row" style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                         <button onClick={() => downloadAgain(b)} disabled={!!busy} style={light}>Download again</button>
+                        {api.exportDetails && <button onClick={() => downloadDetails(b)} disabled={!!busy} style={light}
+                          title="One row per booking with every event question as a Yes/No column. For your review, not for 25Live.">Details sheet</button>}
                         {!done && <button onClick={() => markUploaded(b)} disabled={!!busy} style={{ ...btn, color:"var(--ink)", background:"var(--mint)" }}>Mark as uploaded</button>}
                         {!done && <button onClick={() => undo(b)} disabled={!!busy} style={{ ...btn, color:"var(--red)", background:"var(--red-wash)" }}>Undo</button>}
                       </div>

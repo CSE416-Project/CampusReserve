@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from models.room import SyncStatus
+from services.request_details import DEFAULT_EVENT_TYPE, description_html, yes_answers
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +49,35 @@ class SyncResult:
 
 def booking_details(*, event_name: str, organization: str, space_id: str | None,
                     room_name: str, start, end, setup_start, cleanup_end,
-                    attendance: int | None, request_id: str) -> dict:
-    """Everything needed to create the booking in 25Live, in one place."""
+                    attendance: int | None, request_id: str,
+                    event_type: str | None = None, description: str | None = None,
+                    event_questions: dict | None = None, co_hosts=(),
+                    program_advisor: str | None = None, requester_name: str | None = None,
+                    requester_email: str | None = None) -> dict:
+    """Everything needed to create the booking in 25Live, in one place.
+
+    This is the field mapping between our request and 25Live's request form:
+      event_name          -> "Event Name" AND "Event Title" (25Live wants them identical)
+      event_type          -> "Event Type"
+      organization        -> "Primary Organization for this Event"
+      co_hosts            -> "Additional Organization(s) for this Event"
+      attendance          -> "Expected Head Count"
+      description_html    -> "Event Description (HTML-Enabled)"
+      event/setup/cleanup -> "Event Date and Time" + "Additional time"
+      space_id            -> "Event Locations"
+      event_questions_yes -> "Event Questions" (answer Yes to these, No to the rest)
+      requester_*         -> "Requestor" and "Scheduler" contact roles
+      program_advisor     -> "Program Advisor" contact role
+    """
     def t(x):
         return x.strftime("%a %b %-d, %Y %-I:%M %p") if x else None
 
     return {
         "event_name": event_name,
+        "event_title": event_name,
+        "event_type": event_type or DEFAULT_EVENT_TYPE,
         "organization": organization,
+        "co_hosts": [getattr(o, "name", str(o)) for o in co_hosts],
         "room": room_name,
         "space_id": space_id,
         "event_start": t(start),
@@ -63,6 +85,14 @@ def booking_details(*, event_name: str, organization: str, space_id: str | None,
         "setup_start": t(setup_start),
         "cleanup_end": t(cleanup_end),
         "expected_attendance": attendance,
+        "description": description,
+        "description_html": description_html(description),
+        # {} means the requester was never asked (an older request).
+        "event_questions": dict(event_questions or {}),
+        "event_questions_yes": yes_answers(event_questions),
+        "requester_name": requester_name,
+        "requester_email": requester_email,
+        "program_advisor": program_advisor,
         "campusreserve_request_id": request_id,
     }
 
@@ -80,15 +110,40 @@ def manual_steps(details: dict, *, cancel: bool = False) -> list[str]:
     steps = [
         f"Open 25Live: {LIVE25_PRO_URL}",
         "Create a new event.",
-        f"Event name: {details['event_name']}  |  Organization: {details['organization']}",
-        f"Location: {where}",
-        f"Event time: {details['event_start']} to {details['event_end']}",
+        f"Event Name and Event Title (the same text in both): {details['event_name']}",
+        f"Event Type: {details.get('event_type') or DEFAULT_EVENT_TYPE}",
+        f"Primary Organization: {details['organization']}",
     ]
-    if details.get("setup_start") or details.get("cleanup_end"):
-        steps.append(f"Reserve the room from {details['setup_start'] or details['event_start']} "
-                     f"to {details['cleanup_end'] or details['event_end']} (setup/cleanup).")
+    if details.get("co_hosts"):
+        steps.append(f"Additional Organization(s): {', '.join(details['co_hosts'])}")
     if details.get("expected_attendance"):
-        steps.append(f"Expected headcount: {details['expected_attendance']}")
+        steps.append(f"Expected Head Count: {details['expected_attendance']}")
+    if details.get("description"):
+        steps.append(f"Event Description: {details['description']}")
+    steps.append(f"Event Date and Time: {details['event_start']} to {details['event_end']}")
+    if details.get("setup_start") or details.get("cleanup_end"):
+        steps.append(f"Additional time: reserve the room from "
+                     f"{details['setup_start'] or details['event_start']} "
+                     f"to {details['cleanup_end'] or details['event_end']} (setup/cleanup).")
+    steps.append(f"Event Locations: {where}")
+    if details.get("event_questions"):  # {} = the requester was never asked
+        yes = details.get("event_questions_yes") or []
+        if yes:
+            listed = "; ".join(f'"{q}"' for q in yes)
+            steps.append(f"Event Questions: answer Yes to {listed}, and No to all the others.")
+        else:
+            steps.append("Event Questions: answer No to every question.")
+    contacts = []
+    if details.get("requester_name"):
+        who = details["requester_name"] + (f" ({details['requester_email']})"
+                                           if details.get("requester_email") else "")
+        contacts.append(f"Requestor and Scheduler: {who}")
+    if details.get("program_advisor"):
+        contacts.append(f"Program Advisor: {details['program_advisor']}")
+    if contacts:
+        steps.append("Contact Roles: " + "  |  ".join(contacts))
+    steps.append("Tick \"I agree to adhere to all building policies\" "
+                 "(the requester agreed to them in CampusReserve).")
     steps.append("Save it, then copy the 25Live event reference/ID and record it in "
                  f"CampusReserve (POST /admin/requests/{details['campusreserve_request_id']}"
                  "/sync/confirm).")
@@ -144,6 +199,13 @@ class ApiSync:
             "event_start": details["event_start"],
             "event_end": details["event_end"],
             "head_count": details["expected_attendance"],
+            "event_title": details["event_title"],
+            "event_type": details["event_type"],
+            "additional_organizations": details["co_hosts"],
+            "description_html": details["description_html"],
+            "event_questions": details["event_questions"],
+            "requester_email": details["requester_email"],
+            "program_advisor": details["program_advisor"],
         }
 
     def _extract_ref(self, response_json) -> str | None:

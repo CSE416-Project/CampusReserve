@@ -371,6 +371,152 @@ def test_available_only_asks_25live_about_the_window(client, auth, leader, live)
 
 
 # =============================================================================
+# GET /rooms/available-slots
+# =============================================================================
+
+def slot_params(days=(DAYS_AHEAD,), windows=("18:00-20:00",), **extra):
+    dates = [(campus_now() + dt.timedelta(days=n)).date().isoformat() for n in days]
+    return {"dates": dates, "windows": list(windows), **extra}
+
+
+def slot_key(n, window="18:00-20:00"):
+    return f"{(campus_now() + dt.timedelta(days=n)).date().isoformat()}|{window}"
+
+
+def test_slots_lists_which_days_each_room_is_free(client, auth, leader, live):
+    live.space("1810")
+    live.space("1811", "SAC 303")
+    live.booking("1810", at(17, target_day() + dt.timedelta(days=1)),
+                 at(19, target_day() + dt.timedelta(days=1)))   # 1810 is taken on day 2
+
+    r = client.get("/rooms/available-slots", params=slot_params(days=(DAYS_AHEAD, DAYS_AHEAD + 1)),
+                   headers=auth(leader))
+
+    rooms = by_id(r)
+    assert r.status_code == 200
+    assert rooms["1811"]["free_slots"] == [slot_key(DAYS_AHEAD), slot_key(DAYS_AHEAD + 1)]
+    assert rooms["1810"]["free_slots"] == [slot_key(DAYS_AHEAD)]
+
+
+def test_slots_best_match_comes_first(client, auth, leader, live):
+    live.space("1810", "A room")
+    live.space("1811", "B room")
+    live.booking("1810", at(17), at(19))   # 1810 is only free on the second day
+
+    r = client.get("/rooms/available-slots", params=slot_params(days=(DAYS_AHEAD, DAYS_AHEAD + 1)),
+                   headers=auth(leader))
+
+    assert [x["id"] for x in r.json()] == ["1811", "1810"]
+
+
+def test_slots_a_room_taken_in_every_slot_is_left_out(client, auth, leader, live):
+    live.space("1810")
+    live.booking("1810", at(17), at(19))
+    live.booking("1810", at(21), at(23))
+
+    r = client.get("/rooms/available-slots",
+                   params=slot_params(windows=("18:00-20:00", "21:00-22:00")), headers=auth(leader))
+
+    assert r.status_code == 200 and "1810" not in by_id(r)
+
+
+def test_slots_multiple_time_windows_on_one_day(client, auth, leader, live):
+    live.space("1810")
+    live.booking("1810", at(21), at(23))   # taken in the later window only
+
+    r = client.get("/rooms/available-slots",
+                   params=slot_params(windows=("18:00-20:00", "21:00-22:00")), headers=auth(leader))
+
+    assert by_id(r)["1810"]["free_slots"] == [slot_key(DAYS_AHEAD)]
+
+
+def test_slots_reports_pending_requests_per_slot(client, auth, leader, room, make_request):
+    make_request(days=DAYS_AHEAD, start_hour=18, status=RequestStatus.PENDING)
+
+    r = client.get("/rooms/available-slots", params=slot_params(days=(DAYS_AHEAD, DAYS_AHEAD + 1)),
+                   headers=auth(leader))
+
+    got = by_id(r)[str(room.id)]
+    assert got["free_slots"] == [slot_key(DAYS_AHEAD), slot_key(DAYS_AHEAD + 1)]
+    assert got["pending_slots"] == [slot_key(DAYS_AHEAD)]
+    assert got["overlapping_pending_requests"] == 1
+
+
+def test_slots_closure_blocks_only_its_day(client, auth, leader, room, closure):
+    closure(room=room)   # closed all of the first day
+
+    r = client.get("/rooms/available-slots", params=slot_params(days=(DAYS_AHEAD, DAYS_AHEAD + 1)),
+                   headers=auth(leader))
+
+    assert by_id(r)[str(room.id)]["free_slots"] == [slot_key(DAYS_AHEAD + 1)]
+
+
+def test_slots_fetches_each_rooms_bookings_once_per_day(client, auth, leader, live):
+    live.space("1810")
+
+    client.get("/rooms/available-slots",
+               params=slot_params(windows=("08:00-10:00", "12:00-14:00", "18:00-20:00")),
+               headers=auth(leader))
+
+    assert len(live.booking_calls) == 1
+
+
+def test_slots_skips_slots_that_already_ended(client, auth, leader, live):
+    live.space("1810")
+    r = client.get("/rooms/available-slots", params=slot_params(days=(-2, DAYS_AHEAD)),
+                   headers=auth(leader))
+    assert r.status_code == 200
+    assert by_id(r)["1810"]["free_slots"] == [slot_key(DAYS_AHEAD)]
+
+
+def test_slots_rejects_when_everything_has_passed(client, auth, leader):
+    assert client.get("/rooms/available-slots", params=slot_params(days=(-2,)),
+                      headers=auth(leader)).status_code == 400
+
+
+@pytest.mark.parametrize("bad", [
+    {"dates": ["next tuesday"], "windows": ["18:00-20:00"]},
+    {"dates": ["2030-02-30"], "windows": ["18:00-20:00"]},
+    {"dates": ["2030-02-01"], "windows": ["6pm-8pm"]},
+    {"dates": ["2030-02-01"], "windows": ["25:00-26:00"]},
+])
+def test_slots_rejects_unreadable_input(client, auth, leader, bad):
+    assert client.get("/rooms/available-slots", params=bad, headers=auth(leader)).status_code == 400
+
+
+def test_slots_needs_dates_and_windows(client, auth, leader):
+    assert client.get("/rooms/available-slots", params={"dates": ["2030-02-01"]},
+                      headers=auth(leader)).status_code == 422
+    assert client.get("/rooms/available-slots", params={"windows": ["18:00-20:00"]},
+                      headers=auth(leader)).status_code == 422
+
+
+def test_slots_caps_the_number_of_combinations(client, auth, leader):
+    params = slot_params(days=range(1, 8), windows=("08:00-09:00", "10:00-11:00", "12:00-13:00",
+                                                    "14:00-15:00"))   # 28 > 24
+    assert client.get("/rooms/available-slots", params=params, headers=auth(leader)).status_code == 400
+
+
+def test_slots_is_502_when_every_check_fails(client, auth, leader, live):
+    live.space("1810")
+    live.failing.add("1810")
+    assert client.get("/rooms/available-slots", params=slot_params(),
+                      headers=auth(leader)).status_code == 502
+
+
+def test_slots_ignores_duplicate_days_and_windows(client, auth, leader, live):
+    live.space("1810")
+    r = client.get("/rooms/available-slots",
+                   params=slot_params(days=(DAYS_AHEAD, DAYS_AHEAD), windows=("18:00-20:00", "18:00-20:00")),
+                   headers=auth(leader))
+    assert by_id(r)["1810"]["free_slots"] == [slot_key(DAYS_AHEAD)]
+
+
+def test_slots_needs_a_token(client):
+    assert client.get("/rooms/available-slots", params=slot_params()).status_code == 401
+
+
+# =============================================================================
 # GET /rooms/search
 # =============================================================================
 

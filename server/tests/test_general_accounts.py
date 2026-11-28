@@ -164,3 +164,143 @@ def test_admin_cant_make_an_account_without_an_email_a_club_leader(client, auth,
     user = db.query(User).filter(User.username == "no_email_here").one()
     r = client.patch(f"/admin/users/{user.id}", json={"role": "club_leader"}, headers=auth(admin))
     assert r.status_code == 409
+
+
+# =============================================================================
+# Optional email (for password resets)
+# =============================================================================
+
+import re  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+
+from models.auth_token import AuthToken  # noqa: E402
+
+
+@pytest.fixture()
+def sent(monkeypatch):
+    out = []
+    monkeypatch.setattr("services.mailer.send_email", lambda to, subject, body: out.append((to, subject, body)))
+    return out
+
+
+def link_token(email_tuple):
+    m = re.search(r"confirm-email\?token=([\w-]+)", email_tuple[2])
+    assert m, "the email has no confirm link"
+    return m.group(1)
+
+
+def age_tokens(db, minutes):
+    for t in db.query(AuthToken).all():
+        t.created_at = datetime.utcnow() - timedelta(minutes=minutes)
+    db.flush()
+
+
+def test_signup_without_email_sends_nothing(client, sent):
+    assert register(client, "no_mail").status_code == 201
+    assert sent == []
+
+
+def test_signup_with_email_works_right_away_and_waits_for_confirmation(client, sent):
+    r = client.post("/auth/register-general",
+                    json={"username": "with_mail", "password": PASSWORD, "email": "fan@example.com"})
+    assert r.status_code == 201
+    assert r.json()["email"] is None                     # not confirmed yet
+    [(to, _, body)] = sent
+    assert to == "fan@example.com" and "/confirm-email?token=" in body
+    headers = token_headers(client, "with_mail")         # can log in before confirming
+    assert client.get("/auth/email", headers=headers).json() == {"email": None, "pending_email": "fan@example.com"}
+
+
+def test_confirming_the_link_adds_the_email(client, sent):
+    client.post("/auth/register-general", json={"username": "confirm_me", "password": PASSWORD, "email": "me@example.com"})
+    r = client.post("/auth/confirm-email", json={"token": link_token(sent[0])})
+    assert r.status_code == 200 and r.json() == {"email": "me@example.com", "pending_email": None}
+    headers = token_headers(client, "confirm_me")
+    assert client.get("/auth/me", headers=headers).json()["email"] == "me@example.com"
+
+
+def test_a_confirm_link_works_once(client, sent):
+    client.post("/auth/register-general", json={"username": "once_only", "password": PASSWORD, "email": "once@example.com"})
+    tok = link_token(sent[0])
+    assert client.post("/auth/confirm-email", json={"token": tok}).status_code == 200
+    assert client.post("/auth/confirm-email", json={"token": tok}).status_code == 400
+
+
+def test_bad_or_expired_confirm_link_is_400(client, sent, db):
+    client.post("/auth/register-general", json={"username": "expired_link", "password": PASSWORD, "email": "late@example.com"})
+    assert client.post("/auth/confirm-email", json={"token": "nonsense"}).status_code == 400
+    for t in db.query(AuthToken).all():
+        t.expires_at = datetime.utcnow() - timedelta(minutes=1)
+    db.flush()
+    assert client.post("/auth/confirm-email", json={"token": link_token(sent[0])}).status_code == 400
+
+
+def test_signup_with_an_email_already_in_use_is_409_and_makes_no_account(client, leader, db):
+    r = client.post("/auth/register-general", json={"username": "copycat", "password": PASSWORD, "email": leader.email.upper()})
+    assert r.status_code == 409
+    assert db.query(User).filter(User.username == "copycat").first() is None
+
+
+def test_add_change_and_remove_from_the_profile(client, general, sent, db):
+    r = client.put("/auth/email", json={"email": "first@example.com"}, headers=general)
+    assert r.status_code == 200 and r.json() == {"email": None, "pending_email": "first@example.com"}
+    client.post("/auth/confirm-email", json={"token": link_token(sent[-1])})
+    age_tokens(db, 5)
+    # change: the old one stays until the new one is confirmed
+    r = client.put("/auth/email", json={"email": "second@example.com"}, headers=general)
+    assert r.json() == {"email": "first@example.com", "pending_email": "second@example.com"}
+    client.post("/auth/confirm-email", json={"token": link_token(sent[-1])})
+    assert client.get("/auth/email", headers=general).json()["email"] == "second@example.com"
+    # remove
+    r = client.delete("/auth/email", headers=general)
+    assert r.status_code == 200 and r.json() == {"email": None, "pending_email": None}
+
+
+def test_adding_an_email_used_by_someone_else_is_409(client, general, leader):
+    r = client.put("/auth/email", json={"email": leader.email}, headers=general)
+    assert r.status_code == 409
+
+
+def test_one_link_a_minute(client, general, sent):
+    assert client.put("/auth/email", json={"email": "a@example.com"}, headers=general).status_code == 200
+    assert client.put("/auth/email", json={"email": "b@example.com"}, headers=general).status_code == 429
+    assert len(sent) == 1
+
+
+def test_a_newer_link_replaces_the_older_one(client, general, sent, db):
+    client.put("/auth/email", json={"email": "old@example.com"}, headers=general)
+    age_tokens(db, 5)
+    client.put("/auth/email", json={"email": "new@example.com"}, headers=general)
+    assert client.post("/auth/confirm-email", json={"token": link_token(sent[0])}).status_code == 400
+    assert client.post("/auth/confirm-email", json={"token": link_token(sent[1])}).json()["email"] == "new@example.com"
+
+
+def test_email_taken_while_the_link_was_waiting_is_409(client, general, sent, make_user):
+    client.put("/auth/email", json={"email": "race@example.com"}, headers=general)
+    make_user(email="race@example.com")
+    assert client.post("/auth/confirm-email", json={"token": link_token(sent[0])}).status_code == 409
+
+
+def test_other_accounts_cant_change_their_email_here(client, auth, leader):
+    assert client.put("/auth/email", json={"email": "x@example.com"}, headers=auth(leader)).status_code == 403
+    assert client.delete("/auth/email", headers=auth(leader)).status_code == 403
+
+
+def test_forgot_password_works_once_the_email_is_confirmed(client, general, sent):
+    client.put("/auth/email", json={"email": "reset.me@example.com"}, headers=general)
+    # not confirmed yet: no reset email
+    client.post("/auth/forgot-password", json={"email": "reset.me@example.com"})
+    assert len(sent) == 1
+    client.post("/auth/confirm-email", json={"token": link_token(sent[0])})
+    client.post("/auth/forgot-password", json={"email": "reset.me@example.com"})
+    to, _, body = sent[-1]
+    assert to == "reset.me@example.com" and "/reset-password?token=" in body
+    tok = re.search(r"token=([\w-]+)", body).group(1)
+    assert client.post("/auth/reset-password", json={"token": tok, "new_password": "brand-new-pass"}).status_code == 204
+    assert login(client, "seawolf_fan", "brand-new-pass").status_code == 200
+
+
+def test_a_general_account_can_log_in_with_its_confirmed_email(client, general, sent):
+    client.put("/auth/email", json={"email": "login.me@example.com"}, headers=general)
+    client.post("/auth/confirm-email", json={"token": link_token(sent[0])})
+    assert login(client, "login.me@example.com").status_code == 200

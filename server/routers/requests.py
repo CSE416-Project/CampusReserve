@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime as dt
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Security, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_
 from datetime import date
 from sqlalchemy.orm import Session, selectinload
@@ -32,6 +32,15 @@ from services.permissions import (
     verified_org_ids,
 )
 from services.request_checks import RoomRules, Window
+from services.request_details import (
+    DEFAULT_EVENT_TYPE,
+    MAX_CO_HOSTS,
+    EventDetails,
+    check_question_keys,
+    clean_text,
+    normalize_questions,
+    resolve_co_hosts,
+)
 from services.request_flow import check_booking, load_25live_rooms, promote_waitlisted
 from services.room_import import ensure_room, find_room
 from services.room_merge import to_local_naive
@@ -56,6 +65,28 @@ class RequestIn(BaseModel):
         False, description="If the room is already booked then, join the waitlist "
                            "instead of failing.")
 
+    # ---- event details: what 25Live's request form asks beyond the basics ----
+    # The event title, primary organization and requestor/scheduler aren't here:
+    # they're event_name, organization_id and the signed-in user.
+    event_type: str = Field(DEFAULT_EVENT_TYPE, min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=5000,
+                                    description="What the event is. Plain text.")
+    event_questions: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Answers to 25Live's yes/no event questions, e.g. {\"food\": true}. "
+                    "Unanswered ones count as No.")
+    co_host_organization_ids: list[str] = Field(
+        default_factory=list, max_length=MAX_CO_HOSTS,
+        description="Other organizations hosting this event with you")
+    program_advisor: str | None = Field(None, max_length=255)
+    policy_agreed: bool = Field(
+        False, description="Must be true to submit: 'I agree to adhere to all building policies'")
+
+    @field_validator("event_questions")
+    @classmethod
+    def _known_questions(cls, v):
+        return check_question_keys(v)
+
     def window(self) -> Window:
         return Window(to_local_naive(self.start_time), to_local_naive(self.end_time),
                       self.setup_minutes, self.cleanup_minutes)
@@ -70,6 +101,18 @@ class RequestUpdate(BaseModel):
     expected_attendance: int | None = Field(None, ge=1)
     join_waitlist_if_taken: bool = False
 
+    # Event details: leave out (None) to keep what's there. "" or [] clears one.
+    event_type: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=5000)
+    event_questions: dict[str, bool] | None = None
+    co_host_organization_ids: list[str] | None = Field(None, max_length=MAX_CO_HOSTS)
+    program_advisor: str | None = Field(None, max_length=255)
+
+    @field_validator("event_questions")
+    @classmethod
+    def _known_questions(cls, v):
+        return check_question_keys(v) if v is not None else v
+
     def window(self) -> Window:
         return Window(to_local_naive(self.start_time), to_local_naive(self.end_time),
                       self.setup_minutes, self.cleanup_minutes)
@@ -83,6 +126,11 @@ class DecisionBody(BaseModel):
     reason: str = Field(min_length=1)
 
 
+class CoHostOut(BaseModel):
+    id: str
+    name: str
+
+
 class RequestOut(BaseModel):
     id: str
     room_id: str                    # public room id (25Live space id when known)
@@ -94,6 +142,12 @@ class RequestOut(BaseModel):
     requester_name: str | None = None
     event_name: str
     expected_attendance: int | None = None
+    event_type: str = DEFAULT_EVENT_TYPE
+    description: str | None = None
+    event_questions: dict[str, bool] = {}   # {} = never answered (older requests)
+    co_hosts: list[CoHostOut] = []
+    program_advisor: str | None = None
+    policy_agreed_at: dt.datetime | None = None
     start_time: dt.datetime
     end_time: dt.datetime
     setup_start: dt.datetime | None = None
@@ -146,6 +200,12 @@ def request_out(req: Request, warnings: list[dict] | None = None) -> RequestOut:
         requester_name=req.requester.name if req.requester else None,
         event_name=req.event_name,
         expected_attendance=req.expected_attendance,
+        event_type=req.event_type or DEFAULT_EVENT_TYPE,
+        description=req.description,
+        event_questions=dict(req.event_questions or {}),
+        co_hosts=[CoHostOut(id=str(o.id), name=o.name) for o in req.co_hosts],
+        program_advisor=req.program_advisor,
+        policy_agreed_at=req.policy_agreed_at,
         start_time=req.start_time,
         end_time=req.end_time,
         setup_start=req.setup_start,
@@ -277,6 +337,20 @@ async def create_request(
     """
     require_scope(user, "create:requests", "handle:requests")
     org_id = await run_in_threadpool(require_member, db, user, body.organization_id)
+    if not body.policy_agreed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="You need to agree to adhere to all building policies "
+                                   "to submit a request.")
+    # Resolve co-hosts before importing the room, so a bad id fails early and cleanly.
+    co_hosts = await run_in_threadpool(resolve_co_hosts, db, body.co_host_organization_ids, org_id)
+    details = EventDetails(
+        event_type=body.event_type.strip() or DEFAULT_EVENT_TYPE,
+        description=clean_text(body.description),
+        event_questions=normalize_questions(body.event_questions),
+        co_hosts=co_hosts,
+        program_advisor=clean_text(body.program_advisor),
+        policy_agreed=True,
+    )
     room, space_id, _ = await _room_for(db, body.room_id, create=True)
     window = body.window()
     is_admin = has_scope(user, "handle:requests")
@@ -297,7 +371,8 @@ async def create_request(
     def create():
         req = booking.create_request(db, room=room, organization_id=org_id, requester=user,
                                      event_name=body.event_name.strip(), window=window,
-                                     attendance=body.expected_attendance, waitlisted=waitlisted)
+                                     attendance=body.expected_attendance, waitlisted=waitlisted,
+                                     details=details)
         db.commit()
         db.refresh(req)
         return request_out(req, [w.to_dict() for w in result.warnings])
@@ -373,9 +448,22 @@ async def update_request(
                                         "Set join_waitlist_if_taken to join the waitlist.")
             move_to_waitlist = True
 
+    changes: dict = {}
+    if body.event_type is not None:
+        changes["event_type"] = body.event_type.strip() or DEFAULT_EVENT_TYPE
+    if body.description is not None:
+        changes["description"] = clean_text(body.description)
+    if body.event_questions is not None:
+        changes["event_questions"] = normalize_questions(body.event_questions)
+    if body.program_advisor is not None:
+        changes["program_advisor"] = clean_text(body.program_advisor)
+    if body.co_host_organization_ids is not None:
+        changes["co_hosts"] = await run_in_threadpool(
+            resolve_co_hosts, db, body.co_host_organization_ids, req.organization_id)
+
     def save():
         booking.update_request(db, req, event_name=body.event_name, window=window,
-                               attendance=body.expected_attendance)
+                               attendance=body.expected_attendance, changes=changes)
         if move_to_waitlist:
             booking.join_waitlist(db, req)
         db.commit()
