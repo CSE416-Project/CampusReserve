@@ -16,7 +16,10 @@ export function setToken(t) {
 function errorMessage(data, status) {
   const d = data && data.detail;
   if (typeof d === "string") return d;
-  if (d && typeof d.message === "string") return d.message;
+  if (d && typeof d.message === "string") {
+    const why = Array.isArray(d.problems) ? d.problems.map(x => x && x.message).filter(Boolean).join(" ") : "";
+    return why ? `${d.message} ${why}` : d.message;   // say why: e.g. "That time has already passed."
+  }
   if (Array.isArray(d) && d[0]?.msg) return d[0].msg;
   return `Request failed (${status})`;
 }
@@ -103,6 +106,7 @@ export const rooms = () => call("/rooms");
 export const roomSchedule = (id, startKey, endKey, related = false) =>
   call(`/rooms/${encodeURIComponent(id)}/schedule?start=${startKey}&end=${endKey}${related ? "&with_related=true" : ""}`);
 // The parts a room divides into (a lobby's tables) and the whole it belongs to: { parts, parents, has_diagram }.
+export const roomDetails = id => call(`/rooms/${encodeURIComponent(id)}/details`);   // features, hours and rules (for comparing rooms)
 export const roomParts = id => call(`/rooms/${encodeURIComponent(id)}/parts`);
 // Official 25Live bookings for a list of rooms (the admin calendar).
 export const live25Schedule = (startKey, endKey, ids) =>
@@ -163,6 +167,7 @@ export function adaptRoom(r) {
     note: r.pending_requests ? `${r.pending_requests} pending request${r.pending_requests === 1 ? "" : "s"}` : "Open for requests",
     slots: SLOTS, live: true,
     instructions: [r.instructions, r.comments].filter(Boolean).join("\n\n"),
+    opensDaysAhead: r.booking_opens_days_ahead ?? null, pending: r.pending_requests || 0, waitlistCount: r.waitlist_count || 0,
   };
 }
 
